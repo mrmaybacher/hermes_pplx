@@ -2,9 +2,10 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
-  StatusResponse, PersonRow, Task, Activity,
+  StatusResponse, PersonRow, Task, Activity, api,
   isActive, isOverdue, relTime, initials, createdLabel,
 } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskRow } from "@/components/hermes/TaskRow";
 import { EmailDetail } from "@/components/hermes/EmailDetail";
@@ -13,7 +14,7 @@ import { SearchResults } from "@/components/hermes/SearchResults";
 import { useTaskActions } from "@/components/hermes/useTaskActions";
 import {
   RefreshCw, Inbox, CheckCircle2, Archive, Activity as ActivityIcon,
-  Users, ListChecks, Mail, Reply, Search, X,
+  Users, ListChecks, Mail, Reply, Search, X, Wand2,
 } from "lucide-react";
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -62,13 +63,26 @@ export default function Dashboard() {
   const activityQ = useQuery<Activity[]>({ queryKey: ["/api/activity"], refetchInterval: REFRESH_MS });
 
   const actions = useTaskActions();
+  const { toast } = useToast();
+
+  const invalidateAll = () =>
+    ["/api/status", "/api/tasks", "/api/people", "/api/activity"].forEach(
+      (k) => queryClient.invalidateQueries({ queryKey: [k] }),
+    );
 
   const runNow = useMutation({
     mutationFn: () => apiRequest("POST", "/api/watcher/run"),
-    onSuccess: () => {
-      ["/api/status", "/api/tasks", "/api/people", "/api/activity"].forEach(
-        (k) => queryClient.invalidateQueries({ queryKey: [k] }),
-      );
+    onSuccess: invalidateAll,
+  });
+
+  const reprocess = useMutation({
+    mutationFn: () => api.reprocess(),
+    onSuccess: (r) => {
+      invalidateAll();
+      toast({ title: `Re-processed: ${r.updated} updated, ${r.skipped} skipped` });
+    },
+    onError: () => {
+      toast({ title: "Re-process failed", description: "Please try again.", variant: "destructive" });
     },
   });
 
@@ -163,6 +177,16 @@ export default function Dashboard() {
               {live ? "Live inbox" : "Demo feed"}
             </span>
             <ThemeToggle />
+            <button
+              type="button"
+              onClick={() => reprocess.mutate()}
+              disabled={reprocess.isPending}
+              title="Re-fetch & re-extract stored emails, refreshing bodies and assignees in place"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-border bg-card px-4 text-[15px] font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+            >
+              <Wand2 size={16} className={reprocess.isPending ? "animate-spin" : ""} />
+              {reprocess.isPending ? "Re-processing…" : "Re-process"}
+            </button>
             <button
               type="button"
               onClick={() => runNow.mutate()}
@@ -340,6 +364,7 @@ function ActivityTab({ q }: { q: ReturnType<typeof useQuery<Activity[]>> }) {
     if (type === "reply_linked") return <Reply size={16} className="text-primary" />;
     if (type === "watcher_run") return <RefreshCw size={16} className="text-muted-foreground" />;
     if (type === "task_updated") return <CheckCircle2 size={16} className="text-success" />;
+    if (type === "email_reprocessed") return <Wand2 size={16} className="text-primary" />;
     if (type === "email_ignored") return <Mail size={16} className="text-muted-foreground" />;
     return <ActivityIcon size={16} className="text-muted-foreground" />;
   };

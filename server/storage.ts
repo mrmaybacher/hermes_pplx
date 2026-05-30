@@ -107,6 +107,7 @@ export interface IStorage {
   createEmail(email: InsertEmail): Promise<Email>;
   listEmails(): Promise<Email[]>;
   getEmail(id: number): Promise<Email | undefined>;
+  updateEmail(id: number, patch: Partial<Email>): Promise<Email | undefined>;
   // people
   getPersonByEmail(email: string): Promise<Person | undefined>;
   upsertPerson(person: InsertPerson): Promise<Person>;
@@ -117,6 +118,7 @@ export interface IStorage {
   getTask(id: number): Promise<Task | undefined>;
   updateTask(id: number, patch: Partial<Task>): Promise<Task | undefined>;
   findTaskByConversation(conversationId: string): Promise<Task | undefined>;
+  listTasksBySourceEmail(emailId: number): Promise<Task[]>;
   searchTasks(q: string): Promise<SearchResult[]>;
   // contracts
   createContract(c: InsertContract): Promise<Contract>;
@@ -161,6 +163,9 @@ export class DatabaseStorage implements IStorage {
   async getEmail(id: number) {
     return db.select().from(emails).where(eq(emails.id, id)).get();
   }
+  async updateEmail(id: number, patch: Partial<Email>) {
+    return db.update(emails).set(patch).where(eq(emails.id, id)).returning().get();
+  }
 
   async getPersonByEmail(email: string) {
     return db.select().from(people).where(eq(people.email, email)).get();
@@ -189,6 +194,9 @@ export class DatabaseStorage implements IStorage {
   async findTaskByConversation(conversationId: string) {
     if (!conversationId) return undefined;
     return db.select().from(tasks).where(eq(tasks.conversationId, conversationId)).get();
+  }
+  async listTasksBySourceEmail(emailId: number) {
+    return db.select().from(tasks).where(eq(tasks.sourceEmailId, emailId)).all();
   }
   async searchTasks(q: string): Promise<SearchResult[]> {
     const needle = (q || "").trim().toLowerCase();

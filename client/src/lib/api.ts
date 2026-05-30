@@ -1,6 +1,22 @@
 import type { Task, Activity } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
 export type { Task, Activity };
+
+// Result of the admin re-process action.
+export interface ReprocessResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+}
+
+export const api = {
+  // POST /api/admin/reprocess — re-fetch + re-extract stored emails in place.
+  async reprocess(): Promise<ReprocessResult> {
+    const res = await apiRequest("POST", "/api/admin/reprocess");
+    return res.json();
+  },
+};
 
 export type TaskStatus = "open" | "in_progress" | "done" | "deleted" | "cancelled";
 

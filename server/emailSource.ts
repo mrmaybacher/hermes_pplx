@@ -349,6 +349,35 @@ export async function fetchConversation(conversationId: string): Promise<RawEmai
   }
 }
 
+// Fetch a single message by its Graph message id; returns RawEmail or null.
+// Reuses htmlToText + resolveBody so the body is cleaned with CURRENT logic.
+export async function fetchMessageById(messageId: string): Promise<RawEmail | null> {
+  if (!usingRealGraph || !messageId) return null;
+  try {
+    const token = await getGraphToken();
+    const select = "id,conversationId,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments";
+    const url = `https://graph.microsoft.com/v1.0/users/${GRAPH_MAILBOX}/messages/${encodeURIComponent(messageId)}?$select=${select}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const m: any = await res.json();
+    const cleaned = htmlToText(m.body?.content || "");
+    const resolved = resolveBody(cleaned) || cleaned || (m.bodyPreview || "").trim();
+    return {
+      messageId: m.id,
+      conversationId: m.conversationId || m.id,
+      fromName: m.from?.emailAddress?.name || "Unknown",
+      fromEmail: m.from?.emailAddress?.address || "unknown@unknown",
+      toRecipients: (m.toRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
+      ccRecipients: (m.ccRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
+      subject: m.subject || "(no subject)",
+      bodyPreview: m.bodyPreview || "",
+      body: resolved,
+      receivedAt: m.receivedDateTime,
+      hasAttachments: Boolean(m.hasAttachments),
+    };
+  } catch { return null; }
+}
+
 // ── Mock feed (demo / no credentials) ──────────────────
 // A realistic stream of emails arriving to hermes@angelsestate.bg.
 // Drip-fed: each watcher tick reveals a few more so the dashboard "comes alive".

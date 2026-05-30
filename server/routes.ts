@@ -39,6 +39,14 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // Admin re-process: re-fetch + re-extract stored emails and refresh their
+  // tasks in place. Idempotent and non-destructive.
+  app.post("/api/admin/reprocess", async (_req, res) => {
+    const { reprocessAll } = await import("./reprocess");
+    const result = await reprocessAll();
+    res.json(result);
+  });
+
   // ── Tasks ──
   app.get("/api/tasks", async (_req, res) => {
     res.json(await storage.listTasks());
