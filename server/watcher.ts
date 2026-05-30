@@ -16,7 +16,7 @@ let running = false;
 let lastRunAt: string | null = null;
 
 // A normalised task draft, shared by the task-like path and the reply fallback.
-interface TaskDraft {
+export interface TaskDraft {
   title: string;
   description: string;
   assigneeName: string | null;
@@ -28,7 +28,7 @@ interface TaskDraft {
 // Build a task from an email + draft: infer/assign the owner, upsert the person,
 // create the task, and log task_created. Shared by the normal task path and the
 // unlinked-reply fallback so both behave identically.
-async function createTaskFromEmail(raw: RawEmail, email: Email, draft: TaskDraft, activityMessage?: string): Promise<void> {
+export async function createTaskFromEmail(raw: RawEmail, email: Email, draft: TaskDraft, activityMessage?: string): Promise<void> {
   // 1B — infer the assignee from To/CC when GPT left it blank OR when GPT set
   // the assignee to the owner/Hermes themselves. Treating owner/Hermes-as-
   // assignee like null lets a more specific To recipient (e.g. agro@) win.
@@ -78,7 +78,7 @@ async function createTaskFromEmail(raw: RawEmail, email: Email, draft: TaskDraft
 }
 
 // Strip a leading reply/forward prefix (RE:/FW:/FWD:) from a subject.
-function stripReplyPrefix(subject: string): string {
+export function stripReplyPrefix(subject: string): string {
   let s = (subject || "").trim();
   while (/^(re|fw|fwd)\s*:/i.test(s)) {
     s = s.replace(/^(re|fw|fwd)\s*:/i, "").trim();
@@ -97,16 +97,9 @@ function hermesIsRecipient(raw: RawEmail): boolean {
     .includes(HERMES_ADDRESS);
 }
 
-// Lookback window. Hermes ingests mail received within the last
-// LOOKBACK_DAYS (counting from the start of that day). Override with the
-// HERMES_LOOKBACK_DAYS env var; defaults to 3 days.
-const LOOKBACK_DAYS = Number(process.env.HERMES_LOOKBACK_DAYS ?? 3);
-function lookbackSinceIso(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - Math.max(0, LOOKBACK_DAYS - 1));
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
+// Full-inbox sentinel. Each scan asks Graph for all inbox messages newest-first;
+// messageId deduplication below prevents already-ingested mail from reprocessing.
+const FULL_INBOX_SINCE_ISO = "1970-01-01T00:00:00Z";
 
 async function processEmail(raw: RawEmail): Promise<void> {
   // Dedup: skip if we've already ingested this message id.
@@ -259,7 +252,7 @@ export async function runWatcherOnce(): Promise<{ ingested: number }> {
   running = true;
   let ingested = 0;
   try {
-    const raws = await fetchNewEmails(lookbackSinceIso());
+    const raws = await fetchNewEmails(FULL_INBOX_SINCE_ISO);
     for (const raw of raws) {
       const before = await storage.getEmailByMessageId(raw.messageId);
       if (before) continue;

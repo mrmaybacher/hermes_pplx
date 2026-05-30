@@ -79,7 +79,7 @@ export default function Dashboard() {
     mutationFn: () => api.reprocess(),
     onSuccess: (r) => {
       invalidateAll();
-      toast({ title: `Re-processed: ${r.updated} updated, ${r.skipped} skipped` });
+      toast({ title: `Re-processed: ${r.updated} updated, ${r.backfilled} new tasks, ${r.skipped} skipped` });
     },
     onError: () => {
       toast({ title: "Re-process failed", description: "Please try again.", variant: "destructive" });

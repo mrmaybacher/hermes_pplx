@@ -8,6 +8,7 @@ export interface ReprocessResult {
   scanned: number;
   updated: number;
   skipped: number;
+  backfilled: number;
 }
 
 export const api = {
