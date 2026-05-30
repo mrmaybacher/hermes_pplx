@@ -3,6 +3,8 @@ import { storage } from "./storage";
 import { fetchNewEmails, usingRealGraph, primeMockFull, splitThread } from "./emailSource";
 import type { RawEmail } from "./emailSource";
 import { extractFromEmail } from "./extract";
+import { HERMES_ADDRESS, OWNER_ADDRESS, inferAssignee } from "./assignee";
+import type { Email } from "@shared/schema";
 
 // Worker cadence + active-hours window (all env-configurable).
 const WATCH_INTERVAL_MIN = Number(process.env.HERMES_WATCH_INTERVAL_MIN ?? 60);
@@ -10,32 +12,78 @@ const WATCH_INTERVAL_MS = WATCH_INTERVAL_MIN * 60 * 1000;
 const ACTIVE_START = Number(process.env.HERMES_ACTIVE_START ?? 7);  // inclusive
 const ACTIVE_END = Number(process.env.HERMES_ACTIVE_END ?? 19);     // inclusive
 const ACTIVE_TZ = process.env.HERMES_TZ || "Europe/Sofia";
-const HERMES_ADDRESS = (process.env.GRAPH_MAILBOX || "hermes@angelsestate.bg").toLowerCase();
-const OWNER_ADDRESS = "g.meriacre@angelsestate.bg"; // the business owner ("You")
 let running = false;
 let lastRunAt: string | null = null;
 
-// Turn an email local-part into a display name, e.g.
-// "petar.georgiev@angelsestate.bg" → "Petar Georgiev".
-function displayNameFromEmail(addr: string): string {
-  const local = addr.split("@")[0] || addr;
-  return local
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ") || addr;
+// A normalised task draft, shared by the task-like path and the reply fallback.
+interface TaskDraft {
+  title: string;
+  description: string;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  dueDate: string | null;
+  priority: "high" | "medium" | "low";
 }
 
-// Infer the assignee from the recipients when GPT left it blank. Hermes and the
-// owner are excluded from being picked when other recipients exist; preference
-// is the first non-Hermes/non-owner To, then CC, else the owner ("You").
-function inferAssignee(raw: RawEmail): { name: string | null; email: string | null } {
-  const excluded = new Set([HERMES_ADDRESS, OWNER_ADDRESS]);
-  const pick = (list: string[]) =>
-    list.map((e) => e.trim()).filter((e) => e && !excluded.has(e.toLowerCase()))[0];
-  const chosen = pick(raw.toRecipients) || pick(raw.ccRecipients);
-  if (chosen) return { name: displayNameFromEmail(chosen), email: chosen.toLowerCase() };
-  return { name: null, email: null }; // falls back to owner ("You") in the UI
+// Build a task from an email + draft: infer/assign the owner, upsert the person,
+// create the task, and log task_created. Shared by the normal task path and the
+// unlinked-reply fallback so both behave identically.
+async function createTaskFromEmail(raw: RawEmail, email: Email, draft: TaskDraft, activityMessage?: string): Promise<void> {
+  // 1B — infer the assignee from To/CC when GPT left it blank OR when GPT set
+  // the assignee to the owner/Hermes themselves. Treating owner/Hermes-as-
+  // assignee like null lets a more specific To recipient (e.g. agro@) win.
+  const gptAssigneeIsOwnerOrHermes =
+    !!draft.assigneeEmail &&
+    [OWNER_ADDRESS, HERMES_ADDRESS].includes(draft.assigneeEmail.toLowerCase());
+  if ((!draft.assigneeName && !draft.assigneeEmail) || gptAssigneeIsOwnerOrHermes) {
+    const inferred = inferAssignee(raw);
+    draft.assigneeName = inferred.name;
+    draft.assigneeEmail = inferred.email;
+  }
+
+  // Register the assignee. If we have a name but no email, synthesize a stable
+  // key so the same person groups together on the People board.
+  if (draft.assigneeName || draft.assigneeEmail) {
+    const personEmail = draft.assigneeEmail
+      || `${draft.assigneeName!.toLowerCase().replace(/\s+/g, ".")}@team`;
+    await storage.upsertPerson({
+      name: draft.assigneeName || draft.assigneeEmail!,
+      email: personEmail,
+      createdAt: new Date().toISOString(),
+    });
+    draft.assigneeEmail = personEmail;
+  }
+
+  const task = await storage.createTask({
+    title: draft.title,
+    description: draft.description,
+    assigneeName: draft.assigneeName,
+    assigneeEmail: draft.assigneeEmail,
+    dueDate: draft.dueDate,
+    priority: draft.priority,
+    status: "open",
+    sourceEmailId: email.id,
+    conversationId: raw.conversationId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  await storage.logActivity({
+    type: "task_created",
+    message: activityMessage
+      ?? `Task created: "${draft.title}"${draft.assigneeName ? ` → ${draft.assigneeName}` : ""}${draft.dueDate ? ` (due ${draft.dueDate})` : ""}`,
+    entityType: "task",
+    entityId: task.id,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+// Strip a leading reply/forward prefix (RE:/FW:/FWD:) from a subject.
+function stripReplyPrefix(subject: string): string {
+  let s = (subject || "").trim();
+  while (/^(re|fw|fwd)\s*:/i.test(s)) {
+    s = s.replace(/^(re|fw|fwd)\s*:/i, "").trim();
+  }
+  return s;
 }
 
 // The recipient gate: Hermes only acts on an email when it was intentionally
@@ -140,18 +188,37 @@ async function processEmail(raw: RawEmail): Promise<void> {
     });
     const linkedTask = await storage.findTaskByConversation(raw.conversationId);
     const linkedContract = linkedTask ? undefined : await storage.findContractByConversation(raw.conversationId);
-    const target = linkedTask
-      ? `task "${linkedTask.title}"`
-      : linkedContract
-      ? `contract "${linkedContract.title}"`
-      : "an untracked thread";
-    await storage.logActivity({
-      type: "reply_linked",
-      message: `Reply from ${raw.fromName} linked to ${target}`,
-      entityType: linkedTask ? "task" : linkedContract ? "contract" : "email",
-      entityId: linkedTask?.id ?? linkedContract?.id ?? email.id,
-      createdAt: new Date().toISOString(),
-    });
+
+    // Linked to an existing task/contract → keep the current behavior: record the
+    // thread message + log "reply_linked", then stop.
+    if (linkedTask || linkedContract) {
+      const target = linkedTask ? `task "${linkedTask.title}"` : `contract "${linkedContract!.title}"`;
+      await storage.logActivity({
+        type: "reply_linked",
+        message: `Reply from ${raw.fromName} linked to ${target}`,
+        entityType: linkedTask ? "task" : "contract",
+        entityId: linkedTask?.id ?? linkedContract!.id,
+        createdAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Untracked thread → previously dropped. Now surface it as a task so a real,
+    // actionable reply/forward isn't silently lost.
+    const title = stripReplyPrefix(raw.subject) || "(no subject)";
+    await createTaskFromEmail(
+      raw,
+      email,
+      {
+        title,
+        description: raw.body || raw.bodyPreview || "",
+        assigneeName: null,
+        assigneeEmail: null,
+        dueDate: null,
+        priority: "medium",
+      },
+      `Task created from reply/forward: "${title}"`,
+    );
     return;
   }
 
@@ -164,7 +231,7 @@ async function processEmail(raw: RawEmail): Promise<void> {
 
   if (isTaskLike) {
     // Normalise both shapes into a single task draft.
-    const draft = extraction.task
+    const draft: TaskDraft = extraction.task
       ? {
           title: extraction.task.title,
           description: extraction.task.description,
@@ -176,57 +243,13 @@ async function processEmail(raw: RawEmail): Promise<void> {
       : {
           title: extraction.contract!.title,
           description: raw.body || raw.bodyPreview || "",
-          assigneeName: null as string | null,
-          assigneeEmail: null as string | null,
-          dueDate: null as string | null,
-          priority: "medium" as const,
+          assigneeName: null,
+          assigneeEmail: null,
+          dueDate: null,
+          priority: "medium",
         };
 
-    // 1B — infer the assignee from To/CC when GPT left it blank OR when GPT set
-    // the assignee to the owner/Hermes themselves. Treating owner/Hermes-as-
-    // assignee like null lets a more specific To recipient (e.g. agro@) win.
-    const gptAssigneeIsOwnerOrHermes =
-      !!draft.assigneeEmail &&
-      [OWNER_ADDRESS, HERMES_ADDRESS].includes(draft.assigneeEmail.toLowerCase());
-    if ((!draft.assigneeName && !draft.assigneeEmail) || gptAssigneeIsOwnerOrHermes) {
-      const inferred = inferAssignee(raw);
-      draft.assigneeName = inferred.name;
-      draft.assigneeEmail = inferred.email;
-    }
-
-    // Register the assignee. If we have a name but no email, synthesize a stable
-    // key so the same person groups together on the People board.
-    if (draft.assigneeName || draft.assigneeEmail) {
-      const personEmail = draft.assigneeEmail
-        || `${draft.assigneeName!.toLowerCase().replace(/\s+/g, ".")}@team`;
-      await storage.upsertPerson({
-        name: draft.assigneeName || draft.assigneeEmail!,
-        email: personEmail,
-        createdAt: new Date().toISOString(),
-      });
-      draft.assigneeEmail = personEmail;
-    }
-
-    const task = await storage.createTask({
-      title: draft.title,
-      description: draft.description,
-      assigneeName: draft.assigneeName,
-      assigneeEmail: draft.assigneeEmail,
-      dueDate: draft.dueDate,
-      priority: draft.priority,
-      status: "open",
-      sourceEmailId: email.id,
-      conversationId: raw.conversationId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    await storage.logActivity({
-      type: "task_created",
-      message: `Task created: "${draft.title}"${draft.assigneeName ? ` → ${draft.assigneeName}` : ""}${draft.dueDate ? ` (due ${draft.dueDate})` : ""}`,
-      entityType: "task",
-      entityId: task.id,
-      createdAt: new Date().toISOString(),
-    });
+    await createTaskFromEmail(raw, email, draft);
     return;
   }
 }
