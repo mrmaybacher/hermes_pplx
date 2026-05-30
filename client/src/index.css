@@ -3,199 +3,91 @@
 @tailwind utilities;
 
 /* ════════════════════════════════════════════════════════════
-   HERMES — JARVIS HUD THEME
-   Deep-space canvas, cyan glow, glassmorphic panels, scanlines.
+   HERMES — LIGHT APPLE THEME
+   Bright, airy macOS-style productivity surface. Soft layering,
+   restrained colour, crisp controls. No dark mode, no HUD glow.
    ════════════════════════════════════════════════════════════ */
 
-/* LIGHT MODE */
 :root {
-  --button-outline: rgba(0, 0, 0, 0.1);
+  /* shadcn elevate system (used by ui/* components) */
+  --button-outline: rgba(0, 0, 0, 0.08);
   --badge-outline: rgba(0, 0, 0, 0.05);
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0, 0, 0, 0.03);
-  --elevate-2: rgba(0, 0, 0, 0.08);
-  --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
-  --border: 0 0% 91%;
-  --card: 0 0% 98%;
-  --card-foreground: 0 0% 9%;
-  --card-border: 0 0% 94%;
-  --sidebar: 0 0% 96%;
-  --sidebar-foreground: 0 0% 9%;
-  --sidebar-border: 0 0% 92%;
-  --sidebar-primary: 191 84% 30%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 0 0% 89%;
-  --sidebar-accent-foreground: 0 0% 9%;
-  --sidebar-ring: 191 84% 30%;
-  --popover: 0 0% 95%;
-  --popover-foreground: 0 0% 9%;
-  --popover-border: 0 0% 91%;
-  --primary: 191 84% 30%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 92%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 93%;
-  --muted-foreground: 0 0% 40%;
-  --accent: 220 14% 92%;
-  --accent-foreground: 0 0% 9%;
-  --destructive: 0 84% 42%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 75%;
-  --ring: 191 84% 30%;
-  --chart-1: 221 83% 45%;
-  --chart-2: 262 83% 48%;
-  --chart-3: 173 58% 39%;
-  --chart-4: 43 74% 49%;
-  --chart-5: 27 87% 55%;
-  --font-sans: Inter, system-ui, sans-serif;
+  --elevate-2: rgba(0, 0, 0, 0.06);
+
+  /* ── Core palette (Option A — Light Apple) ── */
+  --background: 240 9% 96%;        /* #F5F5F7 app canvas */
+  --foreground: 240 4% 12%;        /* #1D1D1F primary text */
+  --border: 240 8% 91%;            /* #E5E5EA hairline */
+  --card: 0 0% 100%;               /* #FFFFFF surfaces */
+  --card-foreground: 240 4% 12%;
+  --card-border: 240 8% 91%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 4% 12%;
+  --popover-border: 240 8% 91%;
+  --primary: 211 100% 50%;         /* #007AFF accent blue */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 11% 96%;        /* #F2F2F7 */
+  --secondary-foreground: 240 4% 12%;
+  --muted: 240 11% 96%;
+  --muted-foreground: 240 2% 39%;  /* #636366 secondary text */
+  --accent: 211 100% 96%;          /* #EAF3FF accent tint */
+  --accent-foreground: 211 100% 42%;
+  --destructive: 3 100% 59%;       /* #FF3B30 */
+  --destructive-foreground: 0 0% 100%;
+  --success: 135 59% 49%;          /* #34C759 */
+  --warning: 36 100% 52%;          /* #FF9F0A */
+  --neutral-archive: 240 2% 44%;   /* #6E6E73 */
+  --input: 240 6% 83%;             /* #D1D1D6 strong border */
+  --ring: 211 100% 50%;
+  --chart-1: 211 100% 50%;
+  --chart-2: 262 83% 58%;
+  --chart-3: 135 59% 49%;
+  --chart-4: 36 100% 52%;
+  --chart-5: 3 100% 59%;
+
+  /* sidebar tokens (kept for shadcn sidebar component compatibility) */
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 240 4% 12%;
+  --sidebar-border: 240 8% 91%;
+  --sidebar-primary: 211 100% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 11% 96%;
+  --sidebar-accent-foreground: 240 4% 12%;
+  --sidebar-ring: 211 100% 50%;
+
+  /* Apple system font stack — NOT monospace */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --radius: 0.5rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
-  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
-  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
-  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 2px 4px -1px hsl(0 0% 0% / 0);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 4px 6px -1px hsl(0 0% 0% / 0);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 8px 10px -1px hsl(0 0% 0% / 0);
-  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0);
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace; /* technical IDs only */
+
+  --radius: 1rem; /* 16px — soft Apple radii */
+
+  /* Soft Apple shadows, never neon glow */
+  --shadow-row: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.04);
+  --shadow-row-hover: 0 10px 30px rgba(0, 0, 0, 0.08);
+  --shadow-detail: 0 18px 60px rgba(0, 0, 0, 0.08);
+  --shadow-popover: 0 24px 80px rgba(0, 0, 0, 0.14);
+
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
-  /* Fallback for older browsers */
+  /* Opaque border fallbacks used by shadcn ui components */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
-  --sidebar-primary-border: hsl(
-    from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --sidebar-accent-border: hsl(var(--sidebar-accent));
-  --sidebar-accent-border: hsl(
-    from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --primary-border: hsl(var(--primary));
-  --primary-border: hsl(
-    from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --secondary-border: hsl(var(--secondary));
-  --secondary-border: hsl(
-    from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --muted-border: hsl(var(--muted));
-  --muted-border: hsl(
-    from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --accent-border: hsl(var(--accent));
-  --accent-border: hsl(
-    from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --destructive-border: hsl(var(--destructive));
-  --destructive-border: hsl(
-    from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-}
-
-.dark {
-  --button-outline: rgba(34, 211, 238, 0.18);
-  --badge-outline: rgba(34, 211, 238, 0.12);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(34, 211, 238, 0.06);
-  --elevate-2: rgba(34, 211, 238, 0.12);
-  --background: 210 60% 4%;
-  --foreground: 187 30% 92%;
-  --border: 190 50% 16%;
-  --card: 205 50% 7%;
-  --card-foreground: 187 30% 92%;
-  --card-border: 190 60% 18%;
-  --sidebar: 208 55% 5%;
-  --sidebar-foreground: 187 30% 92%;
-  --sidebar-border: 190 50% 14%;
-  --sidebar-primary: 187 92% 55%;
-  --sidebar-primary-foreground: 210 60% 4%;
-  --sidebar-accent: 190 50% 12%;
-  --sidebar-accent-foreground: 187 80% 80%;
-  --sidebar-ring: 187 92% 55%;
-  --popover: 205 55% 6%;
-  --popover-foreground: 187 30% 92%;
-  --popover-border: 190 60% 18%;
-  --primary: 187 92% 55%;
-  --primary-foreground: 210 60% 4%;
-  --secondary: 200 45% 12%;
-  --secondary-foreground: 187 40% 88%;
-  --muted: 200 40% 11%;
-  --muted-foreground: 190 20% 60%;
-  --accent: 190 50% 14%;
-  --accent-foreground: 187 80% 82%;
-  --destructive: 350 95% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 190 50% 22%;
-  --ring: 187 92% 55%;
-  --chart-1: 221 83% 65%;
-  --chart-2: 262 83% 68%;
-  --chart-3: 173 58% 55%;
-  --chart-4: 43 74% 65%;
-  --chart-5: 27 87% 65%;
-  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
-  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
-  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
-  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 2px 4px -1px hsl(0 0% 0% / 0);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 4px 6px -1px hsl(0 0% 0% / 0);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 8px 10px -1px hsl(0 0% 0% / 0);
-  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0);
-
-  /* Fallback for older browsers */
-  --sidebar-primary-border: hsl(var(--sidebar-primary));
-  --sidebar-primary-border: hsl(
-    from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
-  --sidebar-accent-border: hsl(var(--sidebar-accent));
-  --sidebar-accent-border: hsl(
-    from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
-  --primary-border: hsl(var(--primary));
-  --primary-border: hsl(
-    from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
-  --secondary-border: hsl(var(--secondary));
-  --secondary-border: hsl(
-    from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
-  --muted-border: hsl(var(--muted));
-  --muted-border: hsl(
-    from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
-  --accent-border: hsl(var(--accent));
-  --accent-border: hsl(
-    from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
-
-  /* Fallback for older browsers */
-  --destructive-border: hsl(var(--destructive));
-  --destructive-border: hsl(
-    from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
-  );
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
 @layer base {
@@ -203,201 +95,141 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    font-size: 16px;
+    line-height: 1.6;
+    letter-spacing: -0.003em;
+  }
+
+  /* Visible focus for keyboard users on all interactive elements */
+  :focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 2px;
+    border-radius: 6px;
   }
 }
 
 /* ════════════════════════════════════════════════════════════
-   HUD EFFECTS (active in dark / Jarvis mode)
+   APPLE COMPONENT UTILITIES
    ════════════════════════════════════════════════════════════ */
 @layer utilities {
-  /* Ambient grid + radial glow backdrop painted onto the app shell */
-  .hud-canvas {
-    position: relative;
-  }
-  .dark .hud-canvas::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    background:
-      radial-gradient(900px 600px at 78% -8%, hsl(187 92% 55% / 0.10), transparent 60%),
-      radial-gradient(700px 500px at 8% 108%, hsl(265 90% 60% / 0.08), transparent 60%),
-      linear-gradient(to bottom, hsl(210 60% 4%), hsl(208 60% 3%));
-  }
-  /* Fine engineering grid */
-  .dark .hud-canvas::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.4;
-    background-image:
-      linear-gradient(hsl(187 92% 55% / 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(187 92% 55% / 0.045) 1px, transparent 1px);
-    background-size: 44px 44px;
-    mask-image: radial-gradient(circle at 50% 40%, black, transparent 90%);
-    -webkit-mask-image: radial-gradient(circle at 50% 40%, black, transparent 90%);
+  /* Translucent glass header / tab surface */
+  .apple-glass {
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
 
-  /* Glassmorphic HUD panel */
-  .hud-panel {
-    position: relative;
-    background: hsl(var(--card) / 0.55);
-    border: 1px solid hsl(var(--card-border));
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  /* Card / row surface */
+  .apple-surface {
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    border-radius: 18px;
+    box-shadow: var(--shadow-row);
+    transition: transform 160ms ease-out, box-shadow 160ms ease-out, border-color 160ms ease-out;
   }
-  .dark .hud-panel {
-    box-shadow:
-      inset 0 1px 0 hsl(187 92% 70% / 0.06),
-      0 0 0 1px hsl(187 92% 55% / 0.04),
-      0 18px 50px -22px hsl(187 92% 40% / 0.35);
+  .apple-surface-hover:hover {
+    transform: translateY(-1px);
+    border-color: hsl(var(--input));
+    box-shadow: var(--shadow-row-hover);
   }
-  /* Bracket corners on accent panels */
-  .hud-bracket::before,
-  .hud-bracket::after {
-    content: "";
-    position: absolute;
-    width: 12px; height: 12px;
-    border-color: hsl(var(--primary) / 0.7);
+  .apple-surface-selected {
+    border-color: rgba(0, 122, 255, 0.35);
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+    box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.18), var(--shadow-row-hover);
+  }
+
+  /* Detail pane */
+  .apple-detail {
+    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    border-radius: 24px;
+    box-shadow: var(--shadow-detail);
+  }
+
+  /* Optimistic row removal animation */
+  @keyframes row-collapse {
+    from { opacity: 1; transform: translateY(0); max-height: 240px; }
+    to   { opacity: 0; transform: translateY(-6px); max-height: 0; }
+  }
+  .row-leaving {
+    animation: row-collapse 200ms ease-out forwards;
+    overflow: hidden;
     pointer-events: none;
   }
-  .hud-bracket::before { top: 6px; left: 6px; border-top: 1.5px solid; border-left: 1.5px solid; }
-  .hud-bracket::after { bottom: 6px; right: 6px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
 
-  /* Detail panel: independently scrollable column on desktop */
+  /* Detail pane crossfade */
+  @keyframes detail-in {
+    from { opacity: 0; transform: translateX(8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .detail-enter {
+    animation: detail-in 180ms ease-out both;
+  }
+
+  /* Independently scrollable detail column on desktop */
   @media (min-width: 1024px) {
-    .hud-detail-panel {
-      max-height: calc(100vh - 7.5rem);
+    .apple-scroll-col {
+      max-height: calc(100dvh - 9.5rem);
       overflow-y: auto;
     }
   }
 
-  .hud-glow { box-shadow: 0 0 0 1px hsl(var(--primary) / 0.25), 0 0 24px -4px hsl(var(--primary) / 0.45); }
-  .text-glow { text-shadow: 0 0 14px hsl(var(--primary) / 0.55); }
-
-  /* Monospace HUD label */
-  .hud-label {
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    font-size: 10px;
-  }
-
-  /* Pulsing status dot */
-  .hud-pulse { position: relative; }
-  .hud-pulse::after {
-    content: "";
-    position: absolute; inset: -4px;
-    border-radius: 9999px;
-    border: 1px solid currentColor;
-    opacity: 0.7;
-    animation: hud-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-  @keyframes hud-ping {
-    0% { transform: scale(0.8); opacity: 0.8; }
-    80%, 100% { transform: scale(2.2); opacity: 0; }
-  }
-
-  /* Scanline sweep used on the header */
-  @keyframes hud-scan {
-    0% { transform: translateX(-120%); }
-    100% { transform: translateX(220%); }
-  }
-  .hud-scan-line {
-    position: absolute; top: 0; bottom: 0; width: 30%;
-    background: linear-gradient(90deg, transparent, hsl(187 92% 55% / 0.10), transparent);
-    animation: hud-scan 6s ease-in-out infinite;
-    pointer-events: none;
-  }
-
-  /* Animated sweep for the reticle / loading ring */
-  @keyframes hud-spin { to { transform: rotate(360deg); } }
-  .hud-rotate { animation: hud-spin 8s linear infinite; }
-  .hud-rotate-rev { animation: hud-spin 12s linear infinite reverse; }
-
-  /* Soft data-flicker on boot */
-  @keyframes hud-rise {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .hud-rise { animation: hud-rise 0.5s ease-out both; }
-}
-
-/**
- * Using the elevate system.
- * Automatic contrast adjustment.
- *
- * <element className="hover-elevate" />
- * <element className="active-elevate-2" />
- *
- * // Using the tailwind utility when a data attribute is "on"
- * <element className="toggle-elevate data-[state=on]:toggle-elevated" />
- * // Or manually controlling the toggle state
- * <element className="toggle-elevate toggle-elevated" />
- *
- * Elevation systems have to handle many states.
- * - not-hovered, vs. hovered vs. active  (three mutually exclusive states)
- * - toggled or not
- * - focused or not (this is not handled with these utilities)
- *
- * Even without handling focused or not, this is six possible combinations that
- * need to be distinguished from eachother visually.
- */
-@layer utilities {
-  /* Hide ugly search cancel button in Chrome until we can style it properly */
+  /* Hide Chrome search cancel button */
   input[type='search']::-webkit-search-cancel-button {
     @apply hidden;
   }
 
-  /* Placeholder styling for contentEditable div */
   [contenteditable][data-placeholder]:empty::before {
     content: attr(data-placeholder);
     color: hsl(var(--muted-foreground));
     pointer-events: none;
   }
+}
 
-  /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
-   * buttons/badges can remove the automatic brightness adjustment on interactions
-   * and program their own. */
-  .no-default-hover-elevate {
+/* Respect reduced motion: drop transforms, keep opacity only */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
+  .apple-surface-hover:hover { transform: none; }
+  .row-leaving { animation: none; opacity: 0; }
+  .detail-enter { animation: none; }
+}
 
-  .no-default-active-elevate {
-  }
+/* ════════════════════════════════════════════════════════════
+   shadcn elevate system (unchanged — required by ui/* components)
+   ════════════════════════════════════════════════════════════ */
+@layer utilities {
+  .no-default-hover-elevate {}
+  .no-default-active-elevate {}
 
-  /**
-   * Toggleable backgrounds go behind the content. Hoverable/active goes on top.
-   * This way they can stack/compound. Both will overlap the parent's borders!
-   * So borders will be automatically adjusted both on toggle, and hover/active,
-   * and they will be compounded.
-   */
   .toggle-elevate::before,
   .toggle-elevate-2::before {
     content: '';
     pointer-events: none;
     position: absolute;
     inset: 0px;
-    /*border-radius: inherit;   match rounded corners */
     border-radius: inherit;
     z-index: -1;
-    /* sits behind content but above backdrop */
   }
-
   .toggle-elevate.toggle-elevated::before {
     background-color: var(--elevate-2);
   }
-
-  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
   .border.toggle-elevate::before {
     inset: -1px;
   }
 
-  /* Does not work on elements with overflow:hidden! */
   .hover-elevate:not(.no-default-hover-elevate),
   .active-elevate:not(.no-default-active-elevate),
   .hover-elevate-2:not(.no-default-hover-elevate),
@@ -414,10 +246,8 @@
     pointer-events: none;
     position: absolute;
     inset: 0px;
-    /*border-radius: inherit;   match rounded corners */
     border-radius: inherit;
     z-index: 999;
-    /* sits in front of content */
   }
 
   .hover-elevate:hover:not(.no-default-hover-elevate)::after,
@@ -430,12 +260,10 @@
     background-color: var(--elevate-2);
   }
 
-  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
   .border.active-elevate:not(.no-active-interaction-elevate)::after,
   .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
-  .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
-  .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after {
     inset: -1px;
   }
 }

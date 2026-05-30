@@ -12,6 +12,7 @@ export const emails = sqliteTable("emails", {
   fromName: text("from_name").notNull(),
   fromEmail: text("from_email").notNull(),
   toRecipients: text("to_recipients").notNull().default("[]"), // JSON array of emails
+  ccRecipients: text("cc_recipients").notNull().default("[]"), // JSON array of emails
   subject: text("subject").notNull().default(""),
   bodyPreview: text("body_preview").notNull().default(""),
   body: text("body").notNull().default(""),
@@ -39,7 +40,7 @@ export const tasks = sqliteTable("tasks", {
   assigneeEmail: text("assignee_email"),
   dueDate: text("due_date"),                          // ISO date or null
   priority: text("priority").notNull().default("medium"), // high | medium | low
-  status: text("status").notNull().default("open"),       // open | in_progress | done
+  status: text("status").notNull().default("open"),       // open | in_progress | done | deleted | cancelled
   sourceEmailId: integer("source_email_id"),          // FK -> emails.id
   conversationId: text("conversation_id"),            // links replies to this task
   createdAt: text("created_at").notNull(),
@@ -105,7 +106,7 @@ export type InsertActivity = z.infer<typeof insertActivitySchema>;
 
 // Patch schema for task updates from the dashboard
 export const updateTaskSchema = z.object({
-  status: z.enum(["open", "in_progress", "done"]).optional(),
+  status: z.enum(["open", "in_progress", "done", "deleted", "cancelled"]).optional(),
   priority: z.enum(["high", "medium", "low"]).optional(),
 });
 export type UpdateTask = z.infer<typeof updateTaskSchema>;

@@ -6,8 +6,32 @@ import { extractFromEmail } from "./extract";
 
 const WATCH_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const HERMES_ADDRESS = (process.env.GRAPH_MAILBOX || "hermes@angelsestate.bg").toLowerCase();
+const OWNER_ADDRESS = "g.meriacre@angelsestate.bg"; // the business owner ("You")
 let running = false;
 let lastRunAt: string | null = null;
+
+// Turn an email local-part into a display name, e.g.
+// "petar.georgiev@angelsestate.bg" → "Petar Georgiev".
+function displayNameFromEmail(addr: string): string {
+  const local = addr.split("@")[0] || addr;
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ") || addr;
+}
+
+// Infer the assignee from the recipients when GPT left it blank. Hermes and the
+// owner are excluded from being picked when other recipients exist; preference
+// is the first non-Hermes/non-owner To, then CC, else the owner ("You").
+function inferAssignee(raw: RawEmail): { name: string | null; email: string | null } {
+  const excluded = new Set([HERMES_ADDRESS, OWNER_ADDRESS]);
+  const pick = (list: string[]) =>
+    list.map((e) => e.trim()).filter((e) => e && !excluded.has(e.toLowerCase()))[0];
+  const chosen = pick(raw.toRecipients) || pick(raw.ccRecipients);
+  if (chosen) return { name: displayNameFromEmail(chosen), email: chosen.toLowerCase() };
+  return { name: null, email: null }; // falls back to owner ("You") in the UI
+}
 
 // The recipient gate: Hermes only acts on an email when it was intentionally
 // involved — i.e. hermes@ is in the To or CC field. This covers all four
@@ -46,6 +70,7 @@ async function processEmail(raw: RawEmail): Promise<void> {
       fromName: raw.fromName,
       fromEmail: raw.fromEmail,
       toRecipients: JSON.stringify(raw.toRecipients),
+      ccRecipients: JSON.stringify(raw.ccRecipients),
       subject: raw.subject,
       bodyPreview: raw.bodyPreview,
       body: raw.body,
@@ -72,6 +97,7 @@ async function processEmail(raw: RawEmail): Promise<void> {
     fromName: raw.fromName,
     fromEmail: raw.fromEmail,
     toRecipients: JSON.stringify(raw.toRecipients),
+    ccRecipients: JSON.stringify(raw.ccRecipients),
     subject: raw.subject,
     bodyPreview: raw.bodyPreview,
     body: raw.body,
@@ -116,28 +142,60 @@ async function processEmail(raw: RawEmail): Promise<void> {
     return;
   }
 
-  if (extraction.classification === "task" && extraction.task) {
-    const t = extraction.task;
-    // Register the assignee. If GPT found no email, synthesize a stable key
-    // from the name so the same person groups together on the People board.
-    if (t.assigneeName || t.assigneeEmail) {
-      const email = t.assigneeEmail
-        || `${t.assigneeName!.toLowerCase().replace(/\s+/g, ".")}@team`;
+  // Both "task" and "contract" classifications now feed the SAME task path.
+  // Contracts are no longer a separate concept: a contract-like email becomes a
+  // normal task whose title is the document subject, at normal priority.
+  const isTaskLike =
+    (extraction.classification === "task" && extraction.task) ||
+    (extraction.classification === "contract" && extraction.contract);
+
+  if (isTaskLike) {
+    // Normalise both shapes into a single task draft.
+    const draft = extraction.task
+      ? {
+          title: extraction.task.title,
+          description: extraction.task.description,
+          assigneeName: extraction.task.assigneeName,
+          assigneeEmail: extraction.task.assigneeEmail,
+          dueDate: extraction.task.dueDate,
+          priority: extraction.task.priority,
+        }
+      : {
+          title: extraction.contract!.title,
+          description: raw.body || raw.bodyPreview || "",
+          assigneeName: null as string | null,
+          assigneeEmail: null as string | null,
+          dueDate: null as string | null,
+          priority: "medium" as const,
+        };
+
+    // 1B — infer the assignee from To/CC when GPT left it blank.
+    if (!draft.assigneeName && !draft.assigneeEmail) {
+      const inferred = inferAssignee(raw);
+      draft.assigneeName = inferred.name;
+      draft.assigneeEmail = inferred.email;
+    }
+
+    // Register the assignee. If we have a name but no email, synthesize a stable
+    // key so the same person groups together on the People board.
+    if (draft.assigneeName || draft.assigneeEmail) {
+      const personEmail = draft.assigneeEmail
+        || `${draft.assigneeName!.toLowerCase().replace(/\s+/g, ".")}@team`;
       await storage.upsertPerson({
-        name: t.assigneeName || t.assigneeEmail!,
-        email,
+        name: draft.assigneeName || draft.assigneeEmail!,
+        email: personEmail,
         createdAt: new Date().toISOString(),
       });
-      // Persist the resolved email back onto the task so People can match it.
-      t.assigneeEmail = email;
+      draft.assigneeEmail = personEmail;
     }
+
     const task = await storage.createTask({
-      title: t.title,
-      description: t.description,
-      assigneeName: t.assigneeName,
-      assigneeEmail: t.assigneeEmail,
-      dueDate: t.dueDate,
-      priority: t.priority,
+      title: draft.title,
+      description: draft.description,
+      assigneeName: draft.assigneeName,
+      assigneeEmail: draft.assigneeEmail,
+      dueDate: draft.dueDate,
+      priority: draft.priority,
       status: "open",
       sourceEmailId: email.id,
       conversationId: raw.conversationId,
@@ -146,49 +204,12 @@ async function processEmail(raw: RawEmail): Promise<void> {
     });
     await storage.logActivity({
       type: "task_created",
-      message: `Task created: "${t.title}"${t.assigneeName ? ` → ${t.assigneeName}` : ""}${t.dueDate ? ` (due ${t.dueDate})` : ""}`,
+      message: `Task created: "${draft.title}"${draft.assigneeName ? ` → ${draft.assigneeName}` : ""}${draft.dueDate ? ` (due ${draft.dueDate})` : ""}`,
       entityType: "task",
       entityId: task.id,
       createdAt: new Date().toISOString(),
     });
     return;
-  }
-
-  if (extraction.classification === "contract" && extraction.contract) {
-    const c = extraction.contract;
-    // Dedupe: if a contract already exists for this email thread, skip creating
-    // a second one (FW:/Re: of the same document arrive as separate messages).
-    if (raw.conversationId) {
-      const existing = await storage.findContractByConversation(raw.conversationId);
-      if (existing) {
-        await storage.logActivity({
-          type: "contract_duplicate",
-          message: `Duplicate contract email ignored for "${existing.title}"`,
-          entityType: "contract",
-          entityId: existing.id,
-          createdAt: new Date().toISOString(),
-        });
-        return;
-      }
-    }
-    const contract = await storage.createContract({
-      title: c.title,
-      counterparty: c.counterparty,
-      counterpartyEmail: c.counterpartyEmail,
-      status: "awaiting_signature",
-      attachmentName: raw.attachmentName || null,
-      sourceEmailId: email.id,
-      conversationId: raw.conversationId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    await storage.logActivity({
-      type: "contract_created",
-      message: `Contract awaiting signature: "${c.title}"${c.counterparty ? ` with ${c.counterparty}` : ""}`,
-      entityType: "contract",
-      entityId: contract.id,
-      createdAt: new Date().toISOString(),
-    });
   }
 }
 

@@ -13,20 +13,21 @@ export async function registerRoutes(
 
   // ── Overview / status ──
   app.get("/api/status", async (_req, res) => {
-    const [tasks, contracts, people] = await Promise.all([
+    const [tasks, people] = await Promise.all([
       storage.listTasks(),
-      storage.listContracts(),
       storage.listPeople(),
     ]);
     const today = new Date().toISOString().slice(0, 10);
-    const open = tasks.filter((t) => t.status !== "done");
-    const overdue = open.filter((t) => t.dueDate && t.dueDate < today);
+    // "active" = open or in_progress (not done/deleted/cancelled).
+    const active = tasks.filter((t) => t.status === "open" || t.status === "in_progress");
+    const overdue = active.filter((t) => t.dueDate && t.dueDate < today);
     res.json({
       watcher: getWatcherStatus(),
       counts: {
-        openTasks: open.length,
+        openTasks: active.length,
         overdueTasks: overdue.length,
-        awaitingSignature: contracts.filter((c) => c.status === "awaiting_signature").length,
+        doneTasks: tasks.filter((t) => t.status === "done").length,
+        archivedTasks: tasks.filter((t) => t.status === "deleted" || t.status === "cancelled").length,
         people: people.length,
       },
     });
@@ -78,7 +79,9 @@ export async function registerRoutes(
     const [people, tasks] = await Promise.all([storage.listPeople(), storage.listTasks()]);
     const today = new Date().toISOString().slice(0, 10);
     const enriched = people.map((p) => {
-      const theirs = tasks.filter((t) => t.assigneeEmail === p.email && t.status !== "done");
+      const theirs = tasks.filter(
+        (t) => t.assigneeEmail === p.email && (t.status === "open" || t.status === "in_progress")
+      );
       return {
         ...p,
         openCount: theirs.length,
@@ -89,9 +92,11 @@ export async function registerRoutes(
     res.json(enriched);
   });
 
-  // ── Contracts ──
+  // ── Contracts (retired) ──
+  // Contracts are no longer a separate concept; contract-like emails become
+  // tasks. The route stays for backwards compatibility but always returns [].
   app.get("/api/contracts", async (_req, res) => {
-    res.json(await storage.listContracts());
+    res.json([]);
   });
 
   // ── Activity ──

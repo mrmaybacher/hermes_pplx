@@ -23,6 +23,92 @@ const {
   GRAPH_MAILBOX = "hermes@angelsestate.bg",
 } = process.env;
 
+// ── Body cleaning ──────────────────────────────────────
+// Convert an HTML (or already-plaintext) email body into readable plain text
+// that preserves paragraph/line structure, then resolve forwarded content so
+// the detail view is never blank.
+
+const FORWARD_SEPARATORS = [
+  /-{2,}\s*Forwarded message\s*-{2,}/i,
+  /-{2,}\s*Original Message\s*-{2,}/i,
+  /Begin forwarded message:/i,
+];
+
+// A line that is only forward-header boilerplate (From:/Sent:/To:/Subject:/Cc:/Date:).
+const HEADER_LINE = /^\s*(From|Sent|To|Cc|Bcc|Subject|Date|Reply-To)\s*:/i;
+
+// Turn HTML into newline-preserving plain text. Safe on plain text input
+// (no tags → returned essentially unchanged aside from entity decoding).
+export function htmlToText(input: string): string {
+  if (!input) return "";
+  let s = input;
+  // Drop script/style blocks entirely.
+  s = s.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
+  // Block-level boundaries → newlines BEFORE stripping tags.
+  s = s.replace(/<\s*br\s*\/?\s*>/gi, "\n");
+  s = s.replace(/<\/\s*(p|div|li|tr|h[1-6]|blockquote)\s*>/gi, "\n");
+  s = s.replace(/<\s*(p|div|li|tr|h[1-6]|blockquote)[^>]*>/gi, "\n");
+  // Strip all remaining tags.
+  s = s.replace(/<[^>]+>/g, "");
+  // Decode the common HTML entities.
+  s = s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+  // Collapse runs of spaces/tabs but keep newlines; trim trailing space per line.
+  s = s
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").replace(/\s+$/g, ""))
+    .join("\n");
+  // Collapse 3+ blank lines down to a max of two.
+  s = s.replace(/\n{3,}/g, "\n\n").trim();
+  return s;
+}
+
+// True when the text contains no real content — empty, or only forward-header
+// boilerplate lines (From:/Sent:/To:/Subject: ...).
+function isOnlyBoilerplate(text: string): boolean {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return true;
+  return lines.every((l) => HEADER_LINE.test(l) || FORWARD_SEPARATORS.some((re) => re.test(l)));
+}
+
+// Given cleaned plain text, if the meaningful body is empty or only forward
+// boilerplate, drill past the forward-header block and return the real body
+// beneath it. Returns the best available body (never throws).
+export function resolveBody(text: string): string {
+  const cleaned = (text || "").trim();
+  if (!cleaned) return "";
+  if (!isOnlyBoilerplate(cleaned)) {
+    // There IS real content at the top level. If a forward separator exists,
+    // keep the whole thing — the wrapper note plus the forwarded body are both
+    // useful and the UI separates them. Otherwise return as-is.
+    return cleaned;
+  }
+
+  // Top level is empty/boilerplate. Find a forward separator and take what
+  // follows; if there is no explicit separator, skip the leading block of
+  // header lines and return the remainder.
+  for (const re of FORWARD_SEPARATORS) {
+    const m = cleaned.match(re);
+    if (m && m.index !== undefined) {
+      const after = cleaned.slice(m.index + m[0].length).trim();
+      if (after) return after;
+    }
+  }
+
+  const lines = cleaned.split("\n");
+  let i = 0;
+  while (i < lines.length && (!lines[i].trim() || HEADER_LINE.test(lines[i]) || FORWARD_SEPARATORS.some((re) => re.test(lines[i])))) {
+    i++;
+  }
+  const remainder = lines.slice(i).join("\n").trim();
+  return remainder || cleaned;
+}
+
 export const usingRealGraph = Boolean(
   GRAPH_TENANT_ID && GRAPH_CLIENT_ID && GRAPH_CLIENT_SECRET
 );
@@ -57,19 +143,25 @@ async function fetchFromGraph(sinceIso: string): Promise<RawEmail[]> {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`Graph messages error ${res.status}: ${await res.text()}`);
   const json: any = await res.json();
-  return (json.value || []).map((m: any): RawEmail => ({
-    messageId: m.id,
-    conversationId: m.conversationId || m.id,
-    fromName: m.from?.emailAddress?.name || "Unknown",
-    fromEmail: m.from?.emailAddress?.address || "unknown@unknown",
-    toRecipients: (m.toRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
-    ccRecipients: (m.ccRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
-    subject: m.subject || "(no subject)",
-    bodyPreview: m.bodyPreview || "",
-    body: m.body?.content?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || m.bodyPreview || "",
-    receivedAt: m.receivedDateTime,
-    hasAttachments: Boolean(m.hasAttachments),
-  }));
+  return (json.value || []).map((m: any): RawEmail => {
+    const rawBody = m.body?.content || "";
+    const cleaned = htmlToText(rawBody);
+    // Resolve forwarded content so the detail view never shows a blank pane.
+    const resolved = resolveBody(cleaned) || cleaned || (m.bodyPreview || "").trim();
+    return {
+      messageId: m.id,
+      conversationId: m.conversationId || m.id,
+      fromName: m.from?.emailAddress?.name || "Unknown",
+      fromEmail: m.from?.emailAddress?.address || "unknown@unknown",
+      toRecipients: (m.toRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
+      ccRecipients: (m.ccRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
+      subject: m.subject || "(no subject)",
+      bodyPreview: m.bodyPreview || "",
+      body: resolved,
+      receivedAt: m.receivedDateTime,
+      hasAttachments: Boolean(m.hasAttachments),
+    };
+  });
 }
 
 // ── Mock feed (demo / no credentials) ──────────────────

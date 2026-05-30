@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile, copyFile, mkdir } from "node:fs/promises";
+import { rm, readFile } from "node:fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -34,14 +34,9 @@ async function buildAll() {
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");
+  // The Light Apple React app (client/src) is the production frontend. Vite
+  // emits it to dist/public, which the server serves in production.
   await viteBuild();
-
-  // Hermes uses a hand-built single-file dashboard (client_html/index.html)
-  // as the production frontend. Overwrite Vite's React index.html with it so
-  // the served UI is the live-data command center, not the old React app.
-  console.log("installing Hermes single-file dashboard...");
-  await mkdir("dist/public", { recursive: true });
-  await copyFile("client_html/index.html", "dist/public/index.html");
 
   console.log("building server...");
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));

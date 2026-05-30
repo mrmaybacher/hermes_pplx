@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS emails (
   from_name TEXT NOT NULL,
   from_email TEXT NOT NULL,
   to_recipients TEXT NOT NULL DEFAULT '[]',
+  cc_recipients TEXT NOT NULL DEFAULT '[]',
   subject TEXT NOT NULL DEFAULT '',
   body_preview TEXT NOT NULL DEFAULT '',
   body TEXT NOT NULL DEFAULT '',
@@ -83,6 +84,18 @@ CREATE TABLE IF NOT EXISTS activity (
   created_at TEXT NOT NULL
 );
 `);
+
+// Additive, idempotent migrations for databases created before a column was
+// added. CREATE TABLE IF NOT EXISTS above is a no-op on an existing data.db, so
+// new columns must be backfilled with ALTER TABLE. Each is guarded so a second
+// boot (column already present) is harmless and never destructive.
+function ensureColumn(table: string, column: string, definition: string) {
+  const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn("emails", "cc_recipients", "TEXT NOT NULL DEFAULT '[]'");
 
 export const db = drizzle(sqlite);
 
