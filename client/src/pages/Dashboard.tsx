@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   StatusResponse, PersonRow, Task, Activity, api,
-  isActive, isOverdue, relTime, initials, createdLabel,
+  isActive, relTime, initials, createdLabel,
 } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,6 +22,9 @@ const LEAVE_MS = 200;
 
 type Tab = "inbox" | "done" | "deleted" | "activity" | "people";
 type ArchiveFilter = "all" | "deleted" | "cancelled";
+type InboxSortOrder = "newest" | "oldest";
+
+const INBOX_SORT_STORAGE_KEY = "hermes_inbox_sort";
 
 const TABS: { key: Tab; label: string; icon: typeof Inbox }[] = [
   { key: "inbox", label: "Inbox", icon: Inbox },
@@ -31,24 +34,38 @@ const TABS: { key: Tab; label: string; icon: typeof Inbox }[] = [
   { key: "activity", label: "Activity", icon: ActivityIcon },
 ];
 
-function sortTasks(list: Task[]): Task[] {
+function readInboxSortOrder(): InboxSortOrder {
+  if (typeof window === "undefined") return "newest";
+  return window.localStorage.getItem(INBOX_SORT_STORAGE_KEY) === "oldest" ? "oldest" : "newest";
+}
+
+function taskCreatedTime(task: Task): number {
+  const time = new Date(task.createdAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function sortInboxTasks(list: Task[], order: InboxSortOrder): Task[] {
+  const direction = order === "newest" ? -1 : 1;
   return [...list].sort((a, b) => {
-    const ao = isOverdue(a.dueDate, a.status), bo = isOverdue(b.dueDate, b.status);
-    if (ao !== bo) return ao ? -1 : 1;
-    const order = { high: 0, medium: 1, low: 2 } as Record<string, number>;
-    if (a.priority !== b.priority) return order[a.priority] - order[b.priority];
-    return (a.dueDate || "9999").localeCompare(b.dueDate || "9999");
+    const diff = taskCreatedTime(a) - taskCreatedTime(b);
+    if (diff !== 0) return diff * direction;
+    return order === "newest" ? b.id - a.id : a.id - b.id;
   });
 }
 
 export default function Dashboard() {
   const [tab, setTab] = useState<Tab>("inbox");
   const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>("all");
+  const [inboxSortOrder, setInboxSortOrder] = useState<InboxSortOrder>(readInboxSortOrder);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [leavingId, setLeavingId] = useState<number | null>(null);
   const [mobileDetail, setMobileDetail] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    window.localStorage.setItem(INBOX_SORT_STORAGE_KEY, inboxSortOrder);
+  }, [inboxSortOrder]);
 
   // Debounce the search input (~250ms) into the query that drives the request.
   useEffect(() => {
@@ -90,7 +107,10 @@ export default function Dashboard() {
   const live = w?.source === "microsoft_graph";
   const tasks = tasksQ.data ?? [];
 
-  const inboxTasks = useMemo(() => sortTasks(tasks.filter((t) => isActive(t.status))), [tasks]);
+  const inboxTasks = useMemo(
+    () => sortInboxTasks(tasks.filter((t) => isActive(t.status)), inboxSortOrder),
+    [tasks, inboxSortOrder],
+  );
   const doneTasks = useMemo(() => tasks.filter((t) => t.status === "done"), [tasks]);
   const archiveTasks = useMemo(() => {
     let list = tasks.filter((t) => t.status === "deleted" || t.status === "cancelled");
@@ -252,7 +272,9 @@ export default function Dashboard() {
                 leavingId={leavingId}
                 mobileDetail={mobileDetail}
                 archiveFilter={archiveFilter}
+                inboxSortOrder={inboxSortOrder}
                 setArchiveFilter={setArchiveFilter}
+                setInboxSortOrder={setInboxSortOrder}
                 onSelect={(id) => { setSelectedId(id); setMobileDetail(true); }}
                 onBack={() => setMobileDetail(false)}
                 onDone={(id) => act(id, actions.markDone)}
@@ -287,15 +309,15 @@ export default function Dashboard() {
 function TaskTab(props: {
   tab: Tab; rowMode: "inbox" | "done" | "archive"; list: Task[]; loading: boolean;
   selectedId: number | null; selectedTask: Task | undefined; leavingId: number | null;
-  mobileDetail: boolean; archiveFilter: ArchiveFilter;
-  setArchiveFilter: (f: ArchiveFilter) => void;
+  mobileDetail: boolean; archiveFilter: ArchiveFilter; inboxSortOrder: InboxSortOrder;
+  setArchiveFilter: (f: ArchiveFilter) => void; setInboxSortOrder: (order: InboxSortOrder) => void;
   onSelect: (id: number) => void; onBack: () => void;
   onDone: (id: number) => void; onDelete: (id: number) => void;
   onCancel: (id: number) => void; onRestore: (id: number) => void;
 }) {
   const {
     tab, rowMode, list, loading, selectedId, selectedTask, leavingId, mobileDetail,
-    archiveFilter, setArchiveFilter, onSelect, onBack, onDone, onDelete, onCancel, onRestore,
+    archiveFilter, inboxSortOrder, setArchiveFilter, setInboxSortOrder, onSelect, onBack, onDone, onDelete, onCancel, onRestore,
   } = props;
 
   const emptyText =
@@ -307,6 +329,35 @@ function TaskTab(props: {
     <div className="grid gap-6 lg:grid-cols-[minmax(420px,0.92fr)_minmax(560px,1.25fr)]">
       {/* List column */}
       <section className={`flex flex-col gap-3 ${mobileDetail ? "hidden lg:flex" : "flex"}`}>
+        {tab === "inbox" && (
+          <div className="flex items-center justify-end">
+            <div
+              className="inline-flex rounded-full border border-border bg-card p-1"
+              role="group"
+              aria-label="Inbox sort order"
+            >
+              {([
+                ["newest", "Newest"],
+                ["oldest", "Oldest"],
+              ] as const).map(([order, label]) => (
+                <button
+                  key={order}
+                  type="button"
+                  aria-pressed={inboxSortOrder === order}
+                  onClick={() => setInboxSortOrder(order)}
+                  className={`rounded-full px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+                    inboxSortOrder === order
+                      ? "bg-secondary text-primary"
+                      : "text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {tab === "deleted" && (
           <div className="flex gap-1.5">
             {(["all", "deleted", "cancelled"] as ArchiveFilter[]).map((f) => (
