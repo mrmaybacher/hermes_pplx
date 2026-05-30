@@ -4,17 +4,22 @@
 // twice yields the same result and never deletes data.
 import { storage } from "./storage";
 import { fetchMessageById, splitThread } from "./emailSource";
+import type { RawEmail } from "./emailSource";
 import { inferAssignee, HERMES_ADDRESS, OWNER_ADDRESS } from "./assignee";
+import { createTaskFromEmail, stripReplyPrefix } from "./watcher";
+import type { TaskDraft } from "./watcher";
+import type { Email } from "@shared/schema";
 
 // A description that still looks like raw/garbled ingestion text: a number-dot
 // immediately followed by a newline (e.g. "  1.\r\nv zadnata chast...").
 const STALE_DESCRIPTION = /\d+\.\r?\n/;
 
-export async function reprocessAll(): Promise<{ scanned: number; updated: number; skipped: number }> {
+export async function reprocessAll(): Promise<{ scanned: number; updated: number; skipped: number; backfilled: number }> {
   const emails = await storage.listEmails();
   let scanned = 0;
   let updated = 0;
   let skipped = 0;
+  let backfilled = 0;
 
   for (const email of emails) {
     // Only Hermes-relevant emails (skip the audit-only "other" ones).
@@ -91,5 +96,59 @@ export async function reprocessAll(): Promise<{ scanned: number; updated: number
     updated++;
   }
 
-  return { scanned, updated, skipped };
+  const refreshedEmails = await storage.listEmails();
+  for (const email of refreshedEmails) {
+    if (email.classification === "other") continue;
+
+    const tasksBySource = await storage.listTasksBySourceEmail(email.id);
+    const taskByConversation = await storage.findTaskByConversation(email.conversationId || "");
+    const contractByConversation = await storage.findContractByConversation(email.conversationId || "");
+    if (tasksBySource.length || taskByConversation || contractByConversation) continue;
+
+    const title = stripReplyPrefix(email.subject) || "(no subject)";
+    const raw = rawFromStoredEmail(email);
+    const draft: TaskDraft = {
+      title,
+      description: email.body || email.bodyPreview || "",
+      assigneeName: null,
+      assigneeEmail: null,
+      dueDate: null,
+      priority: "medium",
+    };
+
+    await createTaskFromEmail(
+      raw,
+      email,
+      draft,
+      `Task backfilled from email: "${title}"`,
+    );
+    backfilled++;
+  }
+
+  return { scanned, updated, skipped, backfilled };
+}
+
+function parseRecipientList(json: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(json || "[]");
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rawFromStoredEmail(email: Email): RawEmail {
+  return {
+    messageId: email.messageId,
+    conversationId: email.conversationId || email.messageId,
+    fromName: email.fromName,
+    fromEmail: email.fromEmail,
+    toRecipients: parseRecipientList(email.toRecipients),
+    ccRecipients: parseRecipientList(email.ccRecipients),
+    subject: email.subject,
+    bodyPreview: email.bodyPreview,
+    body: email.body,
+    receivedAt: email.receivedAt,
+    hasAttachments: false,
+  };
 }

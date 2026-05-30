@@ -280,16 +280,27 @@ async function getGraphToken(): Promise<string> {
 
 async function fetchFromGraph(sinceIso: string): Promise<RawEmail[]> {
   const token = await getGraphToken();
-  // Only messages received since the lookback window, newest first.
+  // Fetch the inbox newest-first and follow Graph pagination. The watcher passes
+  // a 1970 sentinel so this effectively scans the full inbox each time; cap the
+  // accumulated set to avoid runaway reads on unusually large mailboxes.
+  const maxMessages = 500;
   const filter = encodeURIComponent(`receivedDateTime ge ${sinceIso}`);
   const select = "id,conversationId,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments";
-  const url =
+  let url =
     `https://graph.microsoft.com/v1.0/users/${GRAPH_MAILBOX}/mailFolders/inbox/messages` +
-    `?$filter=${filter}&$select=${select}&$orderby=receivedDateTime desc&$top=25`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Graph messages error ${res.status}: ${await res.text()}`);
-  const json: any = await res.json();
-  return (json.value || []).map((m: any): RawEmail => {
+    `?$filter=${filter}&$select=${select}&$orderby=receivedDateTime desc&$top=50`;
+  const messages: any[] = [];
+
+  while (url && messages.length < maxMessages) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`Graph messages error ${res.status}: ${await res.text()}`);
+    const json: any = await res.json();
+    const page = Array.isArray(json.value) ? json.value : [];
+    messages.push(...page.slice(0, maxMessages - messages.length));
+    url = messages.length < maxMessages ? json["@odata.nextLink"] || "" : "";
+  }
+
+  return messages.map((m: any): RawEmail => {
     const rawBody = m.body?.content || "";
     const cleaned = htmlToText(rawBody);
     // Resolve forwarded content so the detail view never shows a blank pane.
