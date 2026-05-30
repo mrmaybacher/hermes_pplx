@@ -1,0 +1,31 @@
+name: Deploy Hermes to Hetzner
+
+# Auto-deploys on every push to main. Also runnable manually from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_PORT }}
+          script: |
+            set -e
+            cd /opt/hermes
+            echo "Pulling latest code..."
+            git fetch --all
+            git reset --hard origin/main
+            echo "Rebuilding and restarting containers..."
+            docker compose up -d --build
+            echo "Pruning old images..."
+            docker image prune -f
+            echo "Deploy complete. Status:"
+            docker compose ps

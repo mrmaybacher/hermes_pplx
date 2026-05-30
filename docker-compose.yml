@@ -1,0 +1,30 @@
+services:
+  hermes:
+    build: .
+    container_name: hermes
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+    volumes:
+      # Persist the SQLite database across restarts / redeploys.
+      - hermes_data:/app/data
+    # No host ports published — Cloudflare Tunnel reaches the app over the
+    # internal docker network. The server stays invisible to the public internet.
+    expose:
+      - "5000"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: hermes_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Token from your Cloudflare Zero Trust tunnel (set in .env)
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - hermes
+
+volumes:
+  hermes_data:

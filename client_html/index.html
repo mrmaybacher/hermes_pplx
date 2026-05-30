@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HERMES // Command Center v2.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #000000;
+  --bg-2: #050510;
+  --panel: rgba(255,255,255,0.02);
+  --panel-hover: rgba(255,255,255,0.05);
+  --border: rgba(255,255,255,0.08);
+  --border-glow: rgba(10,132,255,0.3);
+  --text: #e8e8e8;
+  --text-dim: rgba(255,255,255,0.4);
+  --text-dark: rgba(255,255,255,0.2);
+  --accent: #0a84ff;
+  --accent-glow: rgba(10,132,255,0.4);
+  --danger: #ff453a;
+  --danger-glow: rgba(255,69,58,0.4);
+  --warn: #ff9f0a;
+  --success: #30d158;
+  --success-glow: rgba(48,209,88,0.4);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Inter', sans-serif;
+  --display: 'Space Grotesk', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+#grid-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.15) 2px,
+    rgba(0,0,0,0.15) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.3;
+}
+
+.header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+}
+
+.logo-area { display: flex; align-items: center; gap: 16px; }
+
+.logo {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, #fff 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 4s ease infinite;
+}
+
+@keyframes shimmer { 0%,100%{background-position:0% 50%;} 50%{background-position:100% 50%;} }
+
+.logo-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dark);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.status-bar { display: flex; align-items: center; gap: 20px; font-family: var(--mono); font-size: 11px; }
+
+.status-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  background: rgba(48,209,88,0.08);
+  border: 1px solid rgba(48,209,88,0.2);
+  border-radius: 20px;
+  color: var(--success);
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.status-pill:hover { background: rgba(48,209,88,0.14); }
+.status-pill.offline { background: rgba(255,69,58,0.08); border-color: rgba(255,69,58,0.2); color: var(--danger); }
+.status-pill.offline .pulse-ring { background: var(--danger); }
+.status-pill.offline .pulse-ring::after { border-color: var(--danger); }
+
+.pulse-ring { width: 8px; height: 8px; background: var(--success); border-radius: 50%; position: relative; }
+.pulse-ring::after {
+  content: ''; position: absolute; top: -4px; left: -4px;
+  width: 16px; height: 16px; border: 1px solid var(--success);
+  border-radius: 50%; animation: ring-pulse 2s infinite;
+}
+@keyframes ring-pulse { 0%{transform:scale(0.8);opacity:1;} 100%{transform:scale(1.8);opacity:0;} }
+
+.clock { color: var(--text-dim); letter-spacing: 1px; }
+
+.scan-btn {
+  padding: 6px 16px;
+  background: rgba(10,132,255,0.1);
+  border: 1px solid rgba(10,132,255,0.25);
+  border-radius: 20px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.scan-btn:hover { background: rgba(10,132,255,0.18); box-shadow: 0 0 16px rgba(10,132,255,0.2); }
+.scan-btn:disabled { opacity: 0.5; cursor: wait; }
+
+.command-bar {
+  position: relative; z-index: 10;
+  padding: 12px 28px;
+  display: flex; gap: 12px; align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-box { flex: 1; position: relative; }
+.search-box input {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px 10px 40px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.3s;
+}
+.search-box input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(10,132,255,0.1);
+  background: rgba(255,255,255,0.05);
+}
+.search-box::before {
+  content: '\2315';
+  position: absolute; left: 14px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dark); font-size: 16px;
+}
+
+.filter-chips { display: flex; gap: 8px; }
+.chip {
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.5px;
+}
+.chip:hover, .chip.active {
+  background: rgba(10,132,255,0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 15px rgba(10,132,255,0.15);
+}
+
+.main-grid {
+  position: relative; z-index: 10;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 28px 28px 28px;
+  height: calc(100vh - 130px);
+}
+
+.glass-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  backdrop-filter: blur(40px) saturate(1.2);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+.glass-panel::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+}
+.glass-panel::after {
+  content: ''; position: absolute; top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(circle at 50% 50%, rgba(10,132,255,0.03), transparent 70%);
+  pointer-events: none; opacity: 0; transition: opacity 0.5s;
+}
+.glass-panel:hover::after { opacity: 1; }
+.glass-panel:hover {
+  border-color: rgba(255,255,255,0.15);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.panel-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; position: relative; z-index: 2;
+}
+.panel-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  display: flex; align-items: center; gap: 10px;
+}
+.panel-title::before {
+  content: ''; width: 4px; height: 4px;
+  background: var(--accent); border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent);
+}
+.panel-count {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dark);
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.task-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; position: relative; z-index: 2; }
+
+.task-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+  position: relative; overflow: hidden;
+}
+.task-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px; background: transparent; transition: all 0.3s;
+}
+.task-card.high::before { background: var(--danger); box-shadow: 0 0 10px var(--danger-glow); }
+.task-card.medium::before { background: var(--warn); box-shadow: 0 0 10px rgba(255,159,10,0.3); }
+.task-card.low::before { background: var(--success); box-shadow: 0 0 10px var(--success-glow); }
+.task-card:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  transform: translateX(4px);
+}
+.task-card.expanded {
+  background: rgba(255,255,255,0.06);
+  border-color: var(--accent);
+  box-shadow: 0 0 30px rgba(10,132,255,0.1);
+}
+
+.task-main { display: flex; align-items: flex-start; gap: 12px; }
+.task-priority-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; flex-shrink: 0; margin-top: 2px;
+}
+.task-priority-icon.high { background: rgba(255,69,58,0.15); color: var(--danger); }
+.task-priority-icon.medium { background: rgba(255,159,10,0.15); color: var(--warn); }
+.task-priority-icon.low { background: rgba(48,209,88,0.15); color: var(--success); }
+
+.task-content { flex: 1; min-width: 0; }
+.task-title { font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 6px; line-height: 1.3; }
+.task-meta-row { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text-dim); flex-wrap: wrap; }
+.task-assignee {
+  font-family: var(--mono); font-size: 10px; color: var(--accent);
+  background: rgba(10,132,255,0.1); padding: 2px 8px; border-radius: 4px;
+  border: 1px solid rgba(10,132,255,0.2);
+}
+.task-deadline.overdue { color: var(--danger); font-weight: 600; }
+.task-deadline.soon { color: var(--warn); }
+.badge { font-family: var(--mono); font-size: 9px; padding: 2px 7px; border-radius: 4px; background: rgba(255,69,58,0.15); color: var(--danger); letter-spacing: 1px; }
+.badge.badge-soon { background: rgba(255,159,10,0.15); color: var(--warn); }
+
+.task-expand {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.4,0,0.2,1), opacity 0.3s;
+  opacity: 0; margin-top: 0;
+}
+.task-card.expanded .task-expand {
+  max-height: 320px; opacity: 1; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.task-email-preview { font-size: 12px; line-height: 1.6; color: var(--text-dim); font-family: var(--sans); max-height: 180px; overflow-y: auto; }
+.task-actions { display: flex; gap: 8px; margin-top: 12px; }
+.task-btn {
+  padding: 6px 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px; font-family: var(--mono);
+  color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+}
+.task-btn:hover { background: rgba(10,132,255,0.1); border-color: var(--accent); color: var(--accent); }
+.task-btn.done:hover { background: rgba(48,209,88,0.1); border-color: var(--success); color: var(--success); }
+
+.people-scroll { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.person-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px; cursor: pointer; transition: all 0.3s;
+  position: relative; overflow: hidden;
+}
+.person-row:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(10,132,255,0.3);
+  transform: translateX(4px);
+  box-shadow: 0 4px 20px rgba(10,132,255,0.08);
+}
+.person-row.active { background: rgba(10,132,255,0.08); border-color: var(--accent); box-shadow: 0 0 20px rgba(10,132,255,0.1); }
+.person-avatar {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: linear-gradient(135deg, rgba(10,132,255,0.2), rgba(10,132,255,0.05));
+  border: 1px solid rgba(10,132,255,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 700; font-size: 14px;
+  color: var(--accent); flex-shrink: 0;
+}
+.person-info { flex: 1; min-width: 0; }
+.person-name { font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 3px; }
+.person-email { font-family: var(--mono); font-size: 10px; color: var(--text-dark); }
+.person-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.stat-number { font-family: var(--mono); font-size: 18px; font-weight: 700; color: #fff; }
+.stat-label { font-size: 9px; color: var(--text-dark); text-transform: uppercase; letter-spacing: 1px; }
+.person-overdue-badge {
+  position: absolute; top: -1px; right: -1px;
+  background: var(--danger); color: #fff; font-size: 9px; font-weight: 700;
+  padding: 2px 8px; border-radius: 0 10px 0 8px; font-family: var(--mono);
+}
+
+.contract-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.contract-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px; padding: 16px; transition: all 0.3s;
+  cursor: pointer; position: relative; overflow: hidden;
+}
+.contract-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
+.contract-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+.contract-title-area { flex: 1; min-width: 0; }
+.contract-title { font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 4px; }
+.contract-counterparty { font-size: 11px; color: var(--text-dim); }
+.contract-status-badge {
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+  letter-spacing: 1.5px; padding: 4px 10px; border-radius: 6px; font-weight: 700; white-space: nowrap;
+}
+.status-pending { background: rgba(10,132,255,0.1); color: var(--accent); border: 1px solid rgba(10,132,255,0.25); box-shadow: 0 0 10px rgba(10,132,255,0.1); }
+.status-reviewed { background: rgba(255,159,10,0.1); color: var(--warn); border: 1px solid rgba(255,159,10,0.25); box-shadow: 0 0 10px rgba(255,159,10,0.1); }
+.status-signed { background: rgba(48,209,88,0.1); color: var(--success); border: 1px solid rgba(48,209,88,0.25); box-shadow: 0 0 10px rgba(48,209,88,0.1); }
+.contract-progress-area { margin-top: 12px; }
+.progress-labels {
+  display: flex; justify-content: space-between; font-size: 9px;
+  color: var(--text-dark); font-family: var(--mono); margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.progress-track { height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; position: relative; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 1.5s cubic-bezier(0.4,0,0.2,1); position: relative; }
+.progress-fill::after {
+  content: ''; position: absolute; top: 0; right: 0; width: 20px; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+  animation: shimmer-bar 2s infinite;
+}
+@keyframes shimmer-bar { 0%{transform:translateX(-20px);opacity:0;} 50%{opacity:1;} 100%{transform:translateX(20px);opacity:0;} }
+.contract-meta-footer { display: flex; justify-content: space-between; margin-top: 10px; font-size: 11px; color: var(--text-dim); }
+
+.activity-panel { position: relative; }
+.terminal { font-family: var(--mono); font-size: 12px; line-height: 2.2; overflow-y: auto; position: relative; z-index: 2; }
+.term-line {
+  display: flex; gap: 14px; padding: 2px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  animation: fadeIn 0.5s ease; transition: all 0.2s;
+}
+.term-line:hover { background: rgba(255,255,255,0.02); padding-left: 8px; }
+@keyframes fadeIn { from{opacity:0;transform:translateX(-10px);} to{opacity:1;transform:translateX(0);} }
+.term-time { color: var(--text-dark); min-width: 60px; flex-shrink: 0; }
+.term-action { color: var(--accent); min-width: 150px; flex-shrink: 0; font-weight: 500; }
+.term-details { color: var(--text-dim); flex: 1; }
+.term-line.completed .term-action, .term-line.task_completed .term-action { color: var(--success); }
+.term-line.danger .term-action { color: var(--danger); }
+.term-line.warn .term-action, .term-line.contract_created .term-action { color: var(--warn); }
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+.empty-state { text-align: center; padding: 40px; color: var(--text-dark); font-size: 13px; }
+
+@media (max-width: 1200px) {
+  .main-grid { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; overflow-y: auto; }
+  body { overflow-y: auto; height: auto; }
+}
+
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(10px);
+  z-index: 10000; display: none; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.3s;
+}
+.modal-overlay.active { display: flex; opacity: 1; }
+.modal-content {
+  background: linear-gradient(180deg, #0a0a14 0%, #050510 100%);
+  border: 1px solid var(--border); border-radius: 20px; padding: 32px;
+  max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 25px 80px rgba(0,0,0,0.8), 0 0 40px rgba(10,132,255,0.05);
+  position: relative;
+}
+.modal-close {
+  position: absolute; top: 16px; right: 16px;
+  width: 32px; height: 32px; border-radius: 8px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; transition: all 0.2s;
+}
+.modal-close:hover { background: rgba(255,69,58,0.1); border-color: var(--danger); color: var(--danger); }
+.modal-title { font-family: var(--display); font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #fff; }
+.modal-meta { font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.modal-body { font-size: 14px; line-height: 1.7; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<canvas id="grid-canvas"></canvas>
+
+<div class="header">
+  <div class="logo-area">
+    <div class="logo">HERMES</div>
+    <div class="logo-sub">Email-to-Task Command Center</div>
+  </div>
+  <div class="status-bar">
+    <button class="scan-btn" id="scanBtn" onclick="runScan()">SCAN INBOX</button>
+    <div class="status-pill" id="statusPill">
+      <span class="pulse-ring"></span>
+      <span id="statusText">CONNECTING…</span>
+    </div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<div class="command-bar">
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="Search tasks, people, contracts...">
+  </div>
+  <div class="filter-chips">
+    <div class="chip active" data-filter="all">ALL</div>
+    <div class="chip" data-filter="high">HIGH</div>
+    <div class="chip" data-filter="overdue">OVERDUE</div>
+    <div class="chip" data-filter="contract">CONTRACTS</div>
+  </div>
+</div>
+
+<div class="main-grid">
+  <div class="glass-panel" id="tasksPanel">
+    <div class="panel-header">
+      <div class="panel-title">Tasks // Priority Stack</div>
+      <div class="panel-count" id="taskCount">– OPEN</div>
+    </div>
+    <div class="task-list" id="taskList"><div class="empty-state">Loading…</div></div>
+  </div>
+
+  <div class="glass-panel" id="peoplePanel">
+    <div class="panel-header">
+      <div class="panel-title">People // Open Items</div>
+      <div class="panel-count" id="peopleCount">– ACTIVE</div>
+    </div>
+    <div class="people-scroll" id="peopleList"><div class="empty-state">Loading…</div></div>
+  </div>
+
+  <div class="glass-panel" id="contractsPanel">
+    <div class="panel-header">
+      <div class="panel-title">Contracts // Signature Tracking</div>
+      <div class="panel-count" id="contractCount">– TRACKED</div>
+    </div>
+    <div class="contract-list" id="contractList"><div class="empty-state">Loading…</div></div>
+  </div>
+
+  <div class="glass-panel activity-panel" id="activityPanel">
+    <div class="panel-header">
+      <div class="panel-title">Activity // Live Feed</div>
+      <div class="panel-count" id="activityCount">– EVENTS</div>
+    </div>
+    <div class="terminal" id="activityLog"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="modal-title" id="modalTitle">Details</div>
+    <div class="modal-meta" id="modalMeta"></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  HERMES live frontend — talks to the Node backend API.
+//  /api/tasks /api/people /api/contracts /api/activity /api/status
+//  /api/tasks/:id (PATCH {status}) /api/tasks/:id/detail /api/watcher/run
+// ============================================================
+
+let tasks = [], people = [], contracts = [], activities = [];
+let selectedPerson = null;       // assignee email
+let activeFilter = 'all';
+let searchQuery = '';
+let expandedTaskId = null;
+
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+const esc = s => (s == null ? '' : String(s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;'));
+
+function initials(name) {
+  if (!name) return '?';
+  const parts = String(name).trim().split(/\s+/);
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
+function fmtDate(d) {
+  if (!d) return 'No deadline';
+  const dt = new Date(d);
+  if (isNaN(dt)) return esc(d);
+  return dt.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+}
+function isOverdue(t) {
+  if (!t.dueDate || t.status === 'done') return false;
+  const dt = new Date(t.dueDate); dt.setHours(23,59,59,999);
+  return dt < new Date();
+}
+function isSoon(t) {
+  if (!t.dueDate || t.status === 'done') return false;
+  const diff = new Date(t.dueDate) - new Date();
+  return diff >= 0 && diff < 3 * 86400000;
+}
+function displayName(t) {
+  return t.assigneeName || 'You';
+}
+
+// ---------- DATA LOADING ----------
+async function loadAll() {
+  await Promise.all([loadStatus(), loadTasks(), loadPeople(), loadContracts(), loadActivity()]);
+}
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status'); const s = await r.json();
+    const live = s.watcher && (s.watcher.source === 'microsoft_graph');
+    const pill = document.getElementById('statusPill');
+    pill.classList.toggle('offline', false);
+    document.getElementById('statusText').textContent = live ? 'SYSTEM ONLINE' : 'SYSTEM ONLINE';
+  } catch (e) {
+    const pill = document.getElementById('statusPill');
+    pill.classList.add('offline');
+    document.getElementById('statusText').textContent = 'BACKEND OFFLINE';
+  }
+}
+async function loadTasks() {
+  try { tasks = await (await fetch('/api/tasks')).json(); } catch(e){ tasks = []; }
+  renderTasks();
+}
+async function loadPeople() {
+  try { people = await (await fetch('/api/people')).json(); } catch(e){ people = []; }
+  renderPeople();
+}
+async function loadContracts() {
+  try { contracts = await (await fetch('/api/contracts')).json(); } catch(e){ contracts = []; }
+  renderContracts();
+}
+async function loadActivity() {
+  try { activities = await (await fetch('/api/activity')).json(); } catch(e){ activities = []; }
+  renderActivity();
+}
+
+// ---------- TASKS ----------
+function visibleTasks() {
+  let list = tasks.filter(t => t.status !== 'done');
+  if (selectedPerson) list = list.filter(t => (t.assigneeEmail || '') === selectedPerson);
+  if (activeFilter === 'high') list = list.filter(t => t.priority === 'high');
+  if (activeFilter === 'overdue') list = list.filter(t => isOverdue(t));
+  if (activeFilter === 'contract') list = [];
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(t =>
+      (t.title||'').toLowerCase().includes(q) ||
+      (t.description||'').toLowerCase().includes(q) ||
+      displayName(t).toLowerCase().includes(q));
+  }
+  return list.sort((a,b) => {
+    const ov = isOverdue(b) - isOverdue(a); if (ov) return ov;
+    const pr = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]; if (pr) return pr;
+    return new Date(a.dueDate||'2999') - new Date(b.dueDate||'2999');
+  });
+}
+function renderTasks() {
+  const c = document.getElementById('taskList');
+  const list = visibleTasks();
+  document.getElementById('taskCount').textContent = `${list.length} OPEN`;
+  if (!list.length) { c.innerHTML = '<div class="empty-state">No tasks match your filters</div>'; return; }
+  c.innerHTML = list.map(t => {
+    const ov = isOverdue(t), soon = isSoon(t);
+    const dClass = ov ? 'overdue' : soon ? 'soon' : '';
+    const dText = ov ? 'OVERDUE · ' + fmtDate(t.dueDate) : fmtDate(t.dueDate);
+    const icon = t.priority === 'high' ? '!' : t.priority === 'medium' ? '\u2022' : '\u2193';
+    const exp = expandedTaskId === t.id ? ' expanded' : '';
+    return `
+      <div class="task-card ${esc(t.priority)}${exp}" data-id="${t.id}" onclick="toggleTask(${t.id})">
+        <div class="task-main">
+          <div class="task-priority-icon ${esc(t.priority)}">${icon}</div>
+          <div class="task-content">
+            <div class="task-title">${esc(t.title)}</div>
+            <div class="task-meta-row">
+              <span class="task-assignee">${esc(displayName(t))}</span>
+              <span class="task-deadline ${dClass}">${dText}</span>
+              ${ov ? '<span class="badge">OVERDUE</span>' : soon ? '<span class="badge badge-soon">DUE SOON</span>' : ''}
+            </div>
+          </div>
+        </div>
+        <div class="task-expand">
+          <div class="task-email-preview">${esc(t.description).replace(/\n/g,'<br>')}</div>
+          <div class="task-actions">
+            <button class="task-btn" onclick="event.stopPropagation(); showTaskDetail(${t.id})">View Full Email</button>
+            <button class="task-btn done" onclick="event.stopPropagation(); markDone(${t.id})">Mark Complete</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+function toggleTask(id) {
+  expandedTaskId = (expandedTaskId === id) ? null : id;
+  renderTasks();
+}
+async function showTaskDetail(id) {
+  const t = tasks.find(x => x.id === id);
+  document.getElementById('modalTitle').textContent = t ? t.title : 'Task';
+  document.getElementById('modalMeta').innerHTML = 'Loading email…';
+  document.getElementById('modalBody').innerHTML = '';
+  document.getElementById('modalOverlay').classList.add('active');
+  try {
+    const d = await (await fetch(`/api/tasks/${id}/detail`)).json();
+    const em = d.sourceEmail || {};
+    document.getElementById('modalMeta').innerHTML =
+      `<span style="color:var(--accent)">FROM:</span> ${esc(em.fromName || em.fromEmail || 'Unknown')}` +
+      ` &nbsp;|&nbsp; <span style="color:var(--accent)">DEADLINE:</span> ${esc(fmtDate(t.dueDate))}` +
+      ` &nbsp;|&nbsp; <span style="color:var(--accent)">PRIORITY:</span> ${esc((t.priority||'').toUpperCase())}`;
+    const bodyText = em.bodyPreview || em.body || t.description || 'No email body available.';
+    document.getElementById('modalBody').innerHTML =
+      `<div style="font-size:13px;margin-bottom:14px;color:#fff;font-weight:600">${esc(em.subject||'')}</div>` +
+      `<pre style="white-space:pre-wrap;font-family:var(--sans);line-height:1.8;color:var(--text-dim)">${esc(bodyText)}</pre>`;
+  } catch (e) {
+    document.getElementById('modalMeta').innerHTML = '';
+    document.getElementById('modalBody').innerHTML =
+      `<pre style="white-space:pre-wrap;font-family:var(--sans);line-height:1.8;color:var(--text-dim)">${esc(t.description||'')}</pre>`;
+  }
+}
+function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+async function markDone(id) {
+  try {
+    await fetch(`/api/tasks/${id}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'done' })
+    });
+  } catch (e) {}
+  expandedTaskId = null;
+  await Promise.all([loadTasks(), loadPeople(), loadActivity()]);
+}
+
+// ---------- PEOPLE ----------
+function renderPeople() {
+  const c = document.getElementById('peopleList');
+  let list = people.slice();
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(p => (p.name||'').toLowerCase().includes(q) || (p.email||'').toLowerCase().includes(q));
+  }
+  document.getElementById('peopleCount').textContent = `${list.length} ACTIVE`;
+  if (!list.length) { c.innerHTML = '<div class="empty-state">No people yet</div>'; return; }
+  c.innerHTML = list.map(p => {
+    const showEmail = p.email && !/@team$/.test(p.email);
+    const active = selectedPerson === p.email ? ' active' : '';
+    return `
+      <div class="person-row${active}" onclick="selectPerson('${esc(p.email)}')">
+        <div class="person-avatar">${esc(initials(p.name))}</div>
+        <div class="person-info">
+          <div class="person-name">${esc(p.name || 'Unknown')}</div>
+          ${showEmail ? `<div class="person-email">${esc(p.email)}</div>` : ''}
+        </div>
+        <div class="person-stats">
+          <div style="text-align:right">
+            <div class="stat-number" style="color:${p.overdueCount>0?'var(--danger)':'#fff'}">${p.openCount||0}</div>
+            <div class="stat-label">Open</div>
+          </div>
+        </div>
+        ${p.overdueCount>0 ? `<div class="person-overdue-badge">${p.overdueCount}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+function selectPerson(email) {
+  selectedPerson = (selectedPerson === email) ? null : email;
+  expandedTaskId = null;
+  renderPeople(); renderTasks();
+}
+
+// ---------- CONTRACTS ----------
+const CONTRACT_PROGRESS = { received: 15, awaiting_signature: 45, reviewed: 70, signed: 100 };
+function contractStatusClass(s) {
+  if (s === 'signed') return 'status-signed';
+  if (s === 'reviewed') return 'status-reviewed';
+  return 'status-pending';
+}
+function renderContracts() {
+  const c = document.getElementById('contractList');
+  let list = contracts.slice();
+  if (activeFilter !== 'all' && activeFilter !== 'contract') list = [];
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(x => (x.title||'').toLowerCase().includes(q) || (x.counterparty||'').toLowerCase().includes(q));
+  }
+  document.getElementById('contractCount').textContent = `${list.length} TRACKED`;
+  if (!list.length) { c.innerHTML = '<div class="empty-state">No contracts match your filters</div>'; return; }
+  c.innerHTML = list.map(x => {
+    const cls = contractStatusClass(x.status);
+    const prog = CONTRACT_PROGRESS[x.status] ?? 30;
+    const color = x.status === 'signed' ? 'var(--success)' : x.status === 'reviewed' ? 'var(--warn)' : 'var(--accent)';
+    const label = (x.status||'').replace(/_/g,' ');
+    return `
+      <div class="contract-card" onclick="showContractDetail(${x.id})">
+        <div class="contract-header">
+          <div class="contract-title-area">
+            <div class="contract-title">${esc(x.title)}</div>
+            <div class="contract-counterparty">${esc(x.counterparty || 'Unknown party')}</div>
+          </div>
+          <div class="contract-status-badge ${cls}">${esc(label)}</div>
+        </div>
+        <div class="contract-progress-area">
+          <div class="progress-labels"><span>Received</span><span>Signature</span><span>Signed</span></div>
+          <div class="progress-track"><div class="progress-fill" style="width:${prog}%; background:${color}"></div></div>
+        </div>
+        <div class="contract-meta-footer">
+          <span>${x.counterpartyEmail ? esc(x.counterpartyEmail) : ''}</span>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dark)">ID: C-${String(x.id).padStart(3,'0')}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+function showContractDetail(id) {
+  const x = contracts.find(c => c.id === id);
+  if (!x) return;
+  document.getElementById('modalTitle').textContent = x.title;
+  document.getElementById('modalMeta').innerHTML =
+    `<span style="color:var(--accent)">COUNTERPARTY:</span> ${esc(x.counterparty||'Unknown')}` +
+    ` &nbsp;|&nbsp; <span style="color:var(--accent)">STATUS:</span> ${esc((x.status||'').replace(/_/g,' ').toUpperCase())}` +
+    (x.counterpartyEmail ? ` &nbsp;|&nbsp; <span style="color:var(--accent)">EMAIL:</span> ${esc(x.counterpartyEmail)}` : '');
+  const prog = CONTRACT_PROGRESS[x.status] ?? 30;
+  const color = x.status === 'signed' ? 'var(--success)' : x.status === 'reviewed' ? 'var(--warn)' : 'var(--accent)';
+  document.getElementById('modalBody').innerHTML =
+    `<div style="margin-bottom:20px">
+       <div style="font-size:11px;color:var(--text-dark);text-transform:uppercase;letter-spacing:2px;margin-bottom:8px">Progress</div>
+       <div class="progress-track" style="height:8px"><div class="progress-fill" style="width:${prog}%; background:${color}"></div></div>
+       <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-dim)">
+         <span>Document received</span><span>${prog}% complete</span>
+       </div>
+     </div>
+     <p style="color:var(--text-dim);line-height:1.7">Hermes monitors this thread for replies containing signing keywords. When a signed reply is detected the status auto-updates.</p>`;
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+// ---------- ACTIVITY ----------
+function renderActivity() {
+  const c = document.getElementById('activityLog');
+  let list = activities.slice();
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(a => (a.message||'').toLowerCase().includes(q));
+  }
+  document.getElementById('activityCount').textContent = `${list.length} EVENTS`;
+  if (!list.length) { c.innerHTML = '<div class="empty-state">No activity yet</div>'; return; }
+  c.innerHTML = list.map(a => {
+    const t = new Date(a.createdAt);
+    const time = isNaN(t) ? '' : t.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+    return `
+      <div class="term-line ${esc(a.type)}">
+        <span class="term-time">${time}</span>
+        <span class="term-action">[${esc(a.type)}]</span>
+        <span class="term-details">${esc(a.message)}</span>
+      </div>`;
+  }).join('');
+}
+
+// ---------- SCAN ----------
+async function runScan() {
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true; btn.textContent = 'SCANNING…';
+  try {
+    await fetch('/api/watcher/run', { method: 'POST' });
+    await loadAll();
+  } catch (e) {}
+  btn.disabled = false; btn.textContent = 'SCAN INBOX';
+}
+
+// ---------- SEARCH & FILTERS ----------
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  searchQuery = e.target.value;
+  renderTasks(); renderPeople(); renderContracts(); renderActivity();
+});
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeFilter = chip.dataset.filter;
+    renderTasks(); renderContracts();
+  });
+});
+
+// ---------- CLOCK ----------
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ---------- ANIMATED GRID ----------
+const canvas = document.getElementById('grid-canvas');
+const ctx = canvas.getContext('2d');
+let width, height;
+function resize(){ width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+resize(); window.addEventListener('resize', resize);
+let offset = 0;
+function drawGrid() {
+  ctx.clearRect(0,0,width,height);
+  ctx.strokeStyle = 'rgba(10,132,255,0.08)'; ctx.lineWidth = 1;
+  const g = 60; offset = (offset + 0.2) % g;
+  for (let x = offset; x < width; x += g){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
+  for (let y = offset; y < height; y += g){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke(); }
+  const time = Date.now()/1000;
+  for (let i=0;i<15;i++){
+    const px = (Math.sin(time*0.3+i*2.5)*0.5+0.5)*width;
+    const py = (Math.cos(time*0.2+i*1.8)*0.5+0.5)*height;
+    const size = Math.sin(time+i)*2+3;
+    ctx.beginPath(); ctx.arc(px,py,size,0,Math.PI*2);
+    ctx.fillStyle = `rgba(10,132,255,${0.1+Math.sin(time+i)*0.05})`; ctx.fill();
+  }
+  requestAnimationFrame(drawGrid);
+}
+drawGrid();
+
+// ---------- INIT + POLL ----------
+loadAll();
+setInterval(loadAll, 30000); // refresh every 30s
+
+document.getElementById('modalOverlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === '/' && document.activeElement !== document.getElementById('searchInput')) {
+    e.preventDefault(); document.getElementById('searchInput').focus();
+  }
+});
+</script>
+</body>
+</html>
