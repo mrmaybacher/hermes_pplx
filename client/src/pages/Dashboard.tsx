@@ -262,7 +262,20 @@ export default function Dashboard() {
               />
             )}
             {tab === "activity" && <ActivityTab q={activityQ} />}
-            {tab === "people" && <PeopleTab q={peopleQ} />}
+            {tab === "people" && (
+              <PeopleTab
+                q={peopleQ}
+                selectedId={selectedId}
+                selectedTask={selectedTask}
+                mobileDetail={mobileDetail}
+                onSelect={(id) => { setSelectedId(id); setMobileDetail(true); }}
+                onBack={() => setMobileDetail(false)}
+                onDone={(id) => act(id, actions.markDone)}
+                onDelete={(id) => act(id, actions.remove)}
+                onCancel={(id) => act(id, actions.cancel)}
+                onRestore={(id) => act(id, actions.restore)}
+              />
+            )}
           </>
         )}
       </main>
@@ -391,56 +404,126 @@ function ActivityTab({ q }: { q: ReturnType<typeof useQuery<Activity[]>> }) {
 }
 
 // ── People ──────────────────────────────────────────────
-function PeopleTab({ q }: { q: ReturnType<typeof useQuery<PersonRow[]>> }) {
+function PeopleTab(props: {
+  q: ReturnType<typeof useQuery<PersonRow[]>>;
+  selectedId: number | null; selectedTask: Task | undefined;
+  mobileDetail: boolean;
+  onSelect: (id: number) => void; onBack: () => void;
+  onDone: (id: number) => void; onDelete: (id: number) => void;
+  onCancel: (id: number) => void; onRestore: (id: number) => void;
+}) {
+  const {
+    q, selectedId, selectedTask, mobileDetail,
+    onSelect, onBack, onDone, onDelete, onCancel,
+  } = props;
   const { data, isLoading } = q;
+
   return (
-    <div className="mx-auto max-w-[900px]">
-      <h2 className="mb-4 text-[24px] font-[650] tracking-[-0.025em]">People</h2>
-      {isLoading ? (
-        <div className="flex flex-col gap-3">{[0, 1].map((i) => <Skeleton key={i} className="h-28 w-full rounded-[18px]" />)}</div>
-      ) : !data?.length ? (
-        <Empty icon={Users} text="No people assigned yet." />
-      ) : (
-        <div className="flex flex-col gap-3">
-          {data.map((p) => (
-            <div key={p.id} className="apple-surface p-5">
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-accent text-[14px] font-semibold text-accent-foreground">
-                  {initials(p.name)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[16px] font-semibold text-foreground">{p.name}</div>
-                  {!p.email.endsWith("@team") && (
-                    <div className="truncate text-[14px] text-muted-foreground">{p.email}</div>
-                  )}
-                </div>
-                <div className="flex items-center gap-5 text-right">
-                  <div>
-                    <div className="text-[20px] font-semibold tabular-nums text-primary leading-none">{p.openCount}</div>
-                    <div className="mt-1 text-[12px] font-medium text-muted-foreground">Open</div>
-                  </div>
-                  {p.overdueCount > 0 && (
-                    <div>
-                      <div className="text-[20px] font-semibold tabular-nums leading-none text-destructive">{p.overdueCount}</div>
-                      <div className="mt-1 text-[12px] font-medium text-destructive">Overdue</div>
+    <div className="grid gap-6 lg:grid-cols-[minmax(420px,0.92fr)_minmax(560px,1.25fr)]">
+      {/* People cards column */}
+      <section className={`flex flex-col gap-4 ${mobileDetail ? "hidden lg:flex" : "flex"}`}>
+        <h2 className="text-[24px] font-[650] tracking-[-0.025em]">People</h2>
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-52 w-full rounded-[18px]" />)}
+          </div>
+        ) : !data?.length ? (
+          <Empty icon={Users} text="No people assigned yet." />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {data.map((p) => {
+              const openTasks = p.tasks.filter((t) => isActive(t.status));
+              const shownTasks = openTasks.slice(0, 4);
+              const hiddenCount = Math.max(openTasks.length - shownTasks.length, 0);
+              const personSelected = selectedId !== null && openTasks.some((t) => t.id === selectedId);
+              const selectFirstTask = () => {
+                if (shownTasks[0]) onSelect(shownTasks[0].id);
+              };
+
+              return (
+                <article
+                  key={p.id}
+                  onClick={selectFirstTask}
+                  className={`apple-surface apple-surface-hover p-5 ${openTasks.length > 0 ? "cursor-pointer" : "cursor-default"} ${
+                    personSelected ? "apple-surface-selected" : ""
+                  }`}
+                  aria-label={`${p.name}, ${p.openCount} open tasks`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent text-[15px] font-semibold text-accent-foreground">
+                      {initials(p.name)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[16px] font-semibold text-foreground">{p.name}</div>
+                      {!p.email.endsWith("@team") && (
+                        <div className="truncate text-[13px] text-muted-foreground">{p.email}</div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
-              {p.tasks.length > 0 && (
-                <ul className="mt-3 space-y-1.5 border-t border-border pt-3">
-                  {p.tasks.map((t) => (
-                    <li key={t.id} className="flex items-center justify-between gap-3 text-[14px]">
-                      <span className="min-w-0 truncate text-foreground">{t.title}</span>
-                      <span className="shrink-0 text-muted-foreground">{createdLabel(t.createdAt)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+                  </div>
+
+                  <div className="mt-4 flex items-end gap-6">
+                    <div>
+                      <div className="text-[26px] font-semibold leading-none tabular-nums text-primary">{p.openCount}</div>
+                      <div className="mt-1 text-[12px] font-medium text-muted-foreground">Open</div>
+                    </div>
+                    {p.overdueCount > 0 && (
+                      <div>
+                        <div className="text-[26px] font-semibold leading-none tabular-nums text-destructive">{p.overdueCount}</div>
+                        <div className="mt-1 text-[12px] font-medium text-destructive">Overdue</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 border-t border-border pt-3">
+                    {shownTasks.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {shownTasks.map((t) => (
+                          <li key={t.id}>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onSelect(t.id); }}
+                              className={`flex w-full items-center justify-between gap-3 rounded-xl px-2 py-1.5 text-left text-[14px] transition-colors hover:bg-secondary ${
+                                selectedId === t.id ? "bg-secondary text-primary" : "text-foreground"
+                              }`}
+                            >
+                              <span className="min-w-0 truncate font-medium">{t.title}</span>
+                              <span className="shrink-0 text-[12px] text-muted-foreground">{createdLabel(t.createdAt)}</span>
+                            </button>
+                          </li>
+                        ))}
+                        {hiddenCount > 0 && (
+                          <li className="px-2 pt-0.5 text-[13px] font-medium text-muted-foreground">+{hiddenCount} more</li>
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="px-2 py-1.5 text-[14px] text-muted-foreground">No open tasks.</p>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Detail column */}
+      <section className={`${mobileDetail ? "block" : "hidden lg:block"}`}>
+        {selectedId && selectedTask ? (
+          <EmailDetail
+            taskId={selectedId}
+            task={selectedTask}
+            onBack={onBack}
+            onDone={() => onDone(selectedId)}
+            onDelete={() => onDelete(selectedId)}
+            onCancel={() => onCancel(selectedId)}
+          />
+        ) : (
+          <div className="apple-detail flex h-full min-h-[320px] flex-col items-center justify-center gap-3 p-10 text-center">
+            <Mail size={32} className="text-muted-foreground/50" />
+            <p className="text-[16px] font-medium text-foreground">Select a task to view the email.</p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
