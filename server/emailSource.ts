@@ -39,15 +39,66 @@ const HEADER_LINE = /^\s*(From|Sent|To|Cc|Bcc|Subject|Date|Reply-To)\s*:/i;
 
 // Turn HTML into newline-preserving plain text. Safe on plain text input
 // (no tags → returned essentially unchanged aside from entity decoding).
+// Stateful pass that turns <ol>/<ul> list items into text markers BEFORE the
+// generic block rules run. Tracks an ol/ul stack so each <li> in an <ol> gets
+// a sequential number ("1. ", "2. ", …) and each <li> in a <ul> gets "• ".
+// Defensive: if we can't tell, fall back to "• ".
+function markListItems(input: string): string {
+  // Tokenize on the list-relevant tags so we can walk them in order.
+  const tokenRe = /<\s*(\/?)(ol|ul|li)\b[^>]*>/gi;
+  type Frame = { type: "ol" | "ul"; counter: number };
+  const stack: Frame[] = [];
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = tokenRe.exec(input)) !== null) {
+    out += input.slice(last, m.index);
+    last = tokenRe.lastIndex;
+    const closing = m[1] === "/";
+    const tag = m[2].toLowerCase() as "ol" | "ul" | "li";
+    if (tag === "ol" || tag === "ul") {
+      if (closing) {
+        // Pop the most recent matching frame.
+        for (let i = stack.length - 1; i >= 0; i--) {
+          if (stack[i].type === tag) { stack.splice(i, 1); break; }
+        }
+        out += "\n";
+      } else {
+        stack.push({ type: tag, counter: 0 });
+        out += "\n";
+      }
+    } else {
+      // <li> — opening tags get a leading marker on their own line. Closing
+      // </li> emits nothing: the next item's opening marker provides the line
+      // break, so list items stay on consecutive lines (no blank line between).
+      if (!closing) {
+        const top = stack[stack.length - 1];
+        if (top && top.type === "ol") {
+          top.counter += 1;
+          out += `\n${top.counter}. `;
+        } else {
+          out += "\n• ";
+        }
+      }
+    }
+  }
+  out += input.slice(last);
+  return out;
+}
+
 export function htmlToText(input: string): string {
   if (!input) return "";
   let s = input;
   // Drop script/style blocks entirely.
   s = s.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "");
-  // Block-level boundaries → newlines BEFORE stripping tags.
+  // List items FIRST so each becomes its own marked line (1./•). This consumes
+  // the <ol>/<ul>/<li> tags, so the generic block rules below never see <li>.
+  s = markListItems(s);
+  // Block-level boundaries → newlines BEFORE stripping tags. (No <li> here — it
+  // was already handled by markListItems.)
   s = s.replace(/<\s*br\s*\/?\s*>/gi, "\n");
-  s = s.replace(/<\/\s*(p|div|li|tr|h[1-6]|blockquote)\s*>/gi, "\n");
-  s = s.replace(/<\s*(p|div|li|tr|h[1-6]|blockquote)[^>]*>/gi, "\n");
+  s = s.replace(/<\/\s*(p|div|tr|h[1-6]|blockquote)\s*>/gi, "\n");
+  s = s.replace(/<\s*(p|div|tr|h[1-6]|blockquote)[^>]*>/gi, "\n");
   // Strip all remaining tags.
   s = s.replace(/<[^>]+>/g, "");
   // Decode the common HTML entities.
@@ -59,6 +110,7 @@ export function htmlToText(input: string): string {
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'");
   // Collapse runs of spaces/tabs but keep newlines; trim trailing space per line.
+  // Also tidy a marker immediately followed by a space (e.g. "1.  text").
   s = s
     .split("\n")
     .map((line) => line.replace(/[ \t]+/g, " ").replace(/\s+$/g, ""))
@@ -107,6 +159,100 @@ export function resolveBody(text: string): string {
   }
   const remainder = lines.slice(i).join("\n").trim();
   return remainder || cleaned;
+}
+
+// ── Thread / chain parsing ─────────────────────────────
+// A single forwarded email often contains multiple stacked messages, each
+// introduced by a header block (From:/Sent:/To:/Subject:). splitThread breaks a
+// cleaned plain-text body into ordered segments so the detail view can render
+// the whole chain instead of just the top note.
+
+export interface ThreadSegment {
+  from: string | null;
+  sent: string | null;
+  to: string | null;
+  subject: string | null;
+  text: string;
+}
+
+// Parse a contiguous block of header lines into structured fields. Unknown
+// lines are ignored; missing fields are null.
+function parseHeaderBlock(lines: string[]): Omit<ThreadSegment, "text"> {
+  const get = (label: RegExp) => {
+    for (const l of lines) {
+      const m = l.match(label);
+      if (m) return m[1].trim() || null;
+    }
+    return null;
+  };
+  return {
+    from: get(/^\s*From\s*:\s*(.*)$/i),
+    sent: get(/^\s*(?:Sent|Date)\s*:\s*(.*)$/i),
+    to: get(/^\s*To\s*:\s*(.*)$/i),
+    subject: get(/^\s*Subject\s*:\s*(.*)$/i),
+  };
+}
+
+// True when a line looks like the start of a header block: a "From:" line that
+// is followed (within the next few lines) by another header line.
+function startsHeaderBlock(lines: string[], i: number): boolean {
+  if (!/^\s*From\s*:/i.test(lines[i])) return false;
+  for (let j = i + 1; j <= i + 4 && j < lines.length; j++) {
+    if (/^\s*(Sent|Date|To|Subject|Cc)\s*:/i.test(lines[j])) return true;
+  }
+  return false;
+}
+
+// Split a cleaned plain-text body into ordered message segments. Returns [] when
+// there is no clear multi-message structure (caller treats the body as single).
+// Never throws.
+export function splitThread(body: string): ThreadSegment[] {
+  try {
+    const text = (body || "").trim();
+    if (!text) return [];
+    const lines = text.split("\n");
+
+    // Find segment boundaries: explicit forward separators OR header-block starts.
+    const boundaries: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const isSep = FORWARD_SEPARATORS.some((re) => re.test(lines[i]));
+      if (isSep || startsHeaderBlock(lines, i)) boundaries.push(i);
+    }
+    if (boundaries.length === 0) return [];
+
+    // Build segments. The text before the first boundary is the top/wrapper note.
+    const cuts = boundaries[0] === 0 ? boundaries : [0, ...boundaries];
+    const segments: ThreadSegment[] = [];
+    for (let b = 0; b < cuts.length; b++) {
+      const start = cuts[b];
+      const end = b + 1 < cuts.length ? cuts[b + 1] : lines.length;
+      let seg = lines.slice(start, end);
+
+      // Drop a leading forward-separator line from this segment.
+      if (seg.length && FORWARD_SEPARATORS.some((re) => re.test(seg[0]))) {
+        seg = seg.slice(1);
+      }
+
+      // Pull the contiguous header block from the top of the segment.
+      const headerLines: string[] = [];
+      let k = 0;
+      while (k < seg.length && (!seg[k].trim() || HEADER_LINE.test(seg[k]))) {
+        if (seg[k].trim()) headerLines.push(seg[k]);
+        k++;
+      }
+      const bodyText = seg.slice(k).join("\n").trim();
+      const header = headerLines.length ? parseHeaderBlock(headerLines) : { from: null, sent: null, to: null, subject: null };
+
+      // Skip empty segments (no header AND no body).
+      if (!bodyText && !header.from && !header.subject) continue;
+      segments.push({ ...header, text: bodyText });
+    }
+
+    // Only meaningful as a chain if it produced more than one segment.
+    return segments.length > 1 ? segments : [];
+  } catch {
+    return [];
+  }
 }
 
 export const usingRealGraph = Boolean(
@@ -162,6 +308,45 @@ async function fetchFromGraph(sinceIso: string): Promise<RawEmail[]> {
       hasAttachments: Boolean(m.hasAttachments),
     };
   });
+}
+
+// ── Conversation siblings (Graph, best-effort) ─────────
+// Fetch other messages sharing a conversationId so chains that arrived as
+// separate Graph messages can be shown. OPTIONAL: wrapped in try/catch, returns
+// [] on any failure. Not currently wired into the watcher (in-body splitThread
+// is the primary chain source) — see TODO in watcher.ts.
+export async function fetchConversation(conversationId: string): Promise<RawEmail[]> {
+  if (!usingRealGraph || !conversationId) return [];
+  try {
+    const token = await getGraphToken();
+    const filter = encodeURIComponent(`conversationId eq '${conversationId}'`);
+    const select = "id,conversationId,subject,bodyPreview,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments";
+    const url =
+      `https://graph.microsoft.com/v1.0/users/${GRAPH_MAILBOX}/messages` +
+      `?$filter=${filter}&$select=${select}&$orderby=receivedDateTime asc&$top=50`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return [];
+    const json: any = await res.json();
+    return (json.value || []).map((m: any): RawEmail => {
+      const cleaned = htmlToText(m.body?.content || "");
+      const resolved = resolveBody(cleaned) || cleaned || (m.bodyPreview || "").trim();
+      return {
+        messageId: m.id,
+        conversationId: m.conversationId || conversationId,
+        fromName: m.from?.emailAddress?.name || "Unknown",
+        fromEmail: m.from?.emailAddress?.address || "unknown@unknown",
+        toRecipients: (m.toRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
+        ccRecipients: (m.ccRecipients || []).map((r: any) => r.emailAddress?.address).filter(Boolean),
+        subject: m.subject || "(no subject)",
+        bodyPreview: m.bodyPreview || "",
+        body: resolved,
+        receivedAt: m.receivedDateTime,
+        hasAttachments: Boolean(m.hasAttachments),
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ── Mock feed (demo / no credentials) ──────────────────

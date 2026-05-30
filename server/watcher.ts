@@ -1,10 +1,15 @@
 // The watcher: every 10 minutes, fetch new emails, extract intent, persist.
 import { storage } from "./storage";
-import { fetchNewEmails, usingRealGraph, primeMockFull } from "./emailSource";
+import { fetchNewEmails, usingRealGraph, primeMockFull, splitThread } from "./emailSource";
 import type { RawEmail } from "./emailSource";
 import { extractFromEmail } from "./extract";
 
-const WATCH_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+// Worker cadence + active-hours window (all env-configurable).
+const WATCH_INTERVAL_MIN = Number(process.env.HERMES_WATCH_INTERVAL_MIN ?? 60);
+const WATCH_INTERVAL_MS = WATCH_INTERVAL_MIN * 60 * 1000;
+const ACTIVE_START = Number(process.env.HERMES_ACTIVE_START ?? 7);  // inclusive
+const ACTIVE_END = Number(process.env.HERMES_ACTIVE_END ?? 19);     // inclusive
+const ACTIVE_TZ = process.env.HERMES_TZ || "Europe/Sofia";
 const HERMES_ADDRESS = (process.env.GRAPH_MAILBOX || "hermes@angelsestate.bg").toLowerCase();
 const OWNER_ADDRESS = "g.meriacre@angelsestate.bg"; // the business owner ("You")
 let running = false;
@@ -76,6 +81,7 @@ async function processEmail(raw: RawEmail): Promise<void> {
       body: raw.body,
       receivedAt: raw.receivedAt,
       classification: "other",
+      threadJson: null,
       processed: true,
       ingestedAt: new Date().toISOString(),
     });
@@ -91,6 +97,12 @@ async function processEmail(raw: RawEmail): Promise<void> {
 
   const extraction = await extractFromEmail(raw);
 
+  // Parse a multi-message body into an ordered chain (3a). Stored additively so
+  // the detail view can render the full thread. Empty array → no clear split.
+  // TODO(3b): optionally enrich with Graph conversationId siblings via
+  // fetchConversation(raw.conversationId); deferred to keep ingestion safe.
+  const segments = splitThread(raw.body);
+
   const email = await storage.createEmail({
     messageId: raw.messageId,
     conversationId: raw.conversationId,
@@ -103,6 +115,7 @@ async function processEmail(raw: RawEmail): Promise<void> {
     body: raw.body,
     receivedAt: raw.receivedAt,
     classification: extraction.classification,
+    threadJson: segments.length ? JSON.stringify(segments) : null,
     processed: true,
     ingestedAt: new Date().toISOString(),
   });
@@ -169,8 +182,13 @@ async function processEmail(raw: RawEmail): Promise<void> {
           priority: "medium" as const,
         };
 
-    // 1B — infer the assignee from To/CC when GPT left it blank.
-    if (!draft.assigneeName && !draft.assigneeEmail) {
+    // 1B — infer the assignee from To/CC when GPT left it blank OR when GPT set
+    // the assignee to the owner/Hermes themselves. Treating owner/Hermes-as-
+    // assignee like null lets a more specific To recipient (e.g. agro@) win.
+    const gptAssigneeIsOwnerOrHermes =
+      !!draft.assigneeEmail &&
+      [OWNER_ADDRESS, HERMES_ADDRESS].includes(draft.assigneeEmail.toLowerCase());
+    if ((!draft.assigneeName && !draft.assigneeEmail) || gptAssigneeIsOwnerOrHermes) {
       const inferred = inferAssignee(raw);
       draft.assigneeName = inferred.name;
       draft.assigneeEmail = inferred.email;
@@ -241,11 +259,43 @@ export async function runWatcherOnce(): Promise<{ ingested: number }> {
   return { ingested };
 }
 
+// Current hour (0–23) in the configured timezone.
+function hourInTz(): number {
+  const s = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ACTIVE_TZ,
+    hour: "numeric",
+    hour12: false,
+  }).format(new Date());
+  // en-GB may render "24" for midnight; normalise to 0.
+  const h = parseInt(s, 10);
+  return Number.isFinite(h) ? h % 24 : new Date().getHours();
+}
+
+// True when the local hour is within [ACTIVE_START, ACTIVE_END] inclusive.
+function withinActiveWindow(): boolean {
+  const h = hourInTz();
+  return h >= ACTIVE_START && h <= ACTIVE_END;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+function activeWindowLabel(): string {
+  return `${pad2(ACTIVE_START)}:00–${pad2(ACTIVE_END)}:00 ${ACTIVE_TZ}`;
+}
+
+// The scheduled tick: only runs during the active window; paused overnight.
+async function scheduledTick(): Promise<void> {
+  if (!withinActiveWindow()) return;
+  await runWatcherOnce();
+}
+
 export function getWatcherStatus() {
   return {
     source: usingRealGraph ? "microsoft_graph" : "mock_demo_feed",
     lastRunAt,
-    intervalMinutes: WATCH_INTERVAL_MS / 60000,
+    intervalMinutes: WATCH_INTERVAL_MIN,
+    activeWindow: activeWindowLabel(),
   };
 }
 
@@ -267,8 +317,13 @@ export async function startWatcher() {
       });
     }
   } else {
+    // Real Graph: sync once on startup regardless of the active window.
     await runWatcherOnce();
   }
-  setInterval(runWatcherOnce, WATCH_INTERVAL_MS);
-  console.log(`[watcher] started — source: ${usingRealGraph ? "Microsoft Graph" : "demo feed"}, every 10 min`);
+  // Scheduled hourly tick, gated to the active window (paused overnight).
+  setInterval(scheduledTick, WATCH_INTERVAL_MS);
+  console.log(
+    `[watcher] started — source: ${usingRealGraph ? "Microsoft Graph" : "demo feed"}, ` +
+    `every ${WATCH_INTERVAL_MIN} min, active ${activeWindowLabel()}`
+  );
 }

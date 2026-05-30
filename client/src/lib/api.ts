@@ -5,7 +5,7 @@ export type { Task, Activity };
 export type TaskStatus = "open" | "in_progress" | "done" | "deleted" | "cancelled";
 
 export interface StatusResponse {
-  watcher: { source: string; lastRunAt: string | null; intervalMinutes: number };
+  watcher: { source: string; lastRunAt: string | null; intervalMinutes: number; activeWindow?: string };
   counts: {
     openTasks: number;
     overdueTasks: number;
@@ -35,6 +35,7 @@ export interface EmailRow {
   bodyPreview: string;
   receivedAt: string;
   classification: string;
+  threadJson?: string | null; // JSON array of ThreadSegment, or null
 }
 
 export interface ThreadMsg {
@@ -44,10 +45,26 @@ export interface ThreadMsg {
   receivedAt: string;
 }
 
+// A single message parsed out of a forwarded chain (server splitThread).
+export interface ThreadSegment {
+  from: string | null;
+  sent: string | null;
+  to: string | null;
+  subject: string | null;
+  text: string;
+}
+
 export interface TaskDetail {
   task: Task;
   sourceEmail: EmailRow | null;
   thread: ThreadMsg[];
+  threadSegments?: ThreadSegment[];
+}
+
+// A task matched by the cross-status search, with a matched excerpt.
+export interface SearchResult extends Task {
+  snippet: string;
+  sourceSubject: string | null;
 }
 
 // Placeholder the UI uses to detect "no extractable body".

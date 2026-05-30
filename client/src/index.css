@@ -88,6 +88,74 @@
   --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Surface hexes exposed as variables so .dark can override them. Light = the
+     original Apple palette; .dark supplies a dark Apple counterpart below. */
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --surface-bg: #ffffff;            /* cards / rows / detail pane */
+  --surface-subtle: #fafafc;        /* metadata + forwarded cards */
+  --surface-selected-grad-to: #f7fbff;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.18);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+}
+
+/* ── Dark Apple palette (manual toggle, never auto-follows system) ── */
+.dark {
+  --button-outline: rgba(255, 255, 255, 0.12);
+  --badge-outline: rgba(255, 255, 255, 0.08);
+  --opaque-button-border-intensity: 8;
+  --elevate-1: rgba(255, 255, 255, 0.05);
+  --elevate-2: rgba(255, 255, 255, 0.09);
+
+  --background: 0 0% 0%;            /* #000000 app canvas */
+  --foreground: 240 17% 96%;       /* #F5F5F7 primary text */
+  --border: 240 2% 22%;            /* #38383A hairline */
+  --card: 240 4% 11%;              /* #1C1C1E surfaces */
+  --card-foreground: 240 17% 96%;
+  --card-border: 240 2% 22%;
+  --popover: 240 3% 17%;           /* #2C2C2E elevated */
+  --popover-foreground: 240 17% 96%;
+  --popover-border: 240 2% 22%;
+  --primary: 211 100% 52%;         /* #0A84FF iOS dark blue */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 3% 17%;         /* #2C2C2E */
+  --secondary-foreground: 240 17% 96%;
+  --muted: 240 3% 17%;
+  --muted-foreground: 240 3% 64%;  /* #A1A1A6 secondary text */
+  --accent: 211 60% 20%;           /* deep blue tint for chips */
+  --accent-foreground: 211 100% 70%;
+  --destructive: 4 100% 63%;       /* #FF453A */
+  --destructive-foreground: 0 0% 100%;
+  --success: 135 65% 51%;          /* #30D158 */
+  --warning: 36 100% 52%;          /* #FF9F0A */
+  --neutral-archive: 240 3% 64%;
+  --input: 240 2% 28%;
+  --ring: 211 100% 52%;
+
+  --sidebar: 240 4% 11%;
+  --sidebar-foreground: 240 17% 96%;
+  --sidebar-border: 240 2% 22%;
+  --sidebar-primary: 211 100% 52%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3% 17%;
+  --sidebar-accent-foreground: 240 17% 96%;
+  --sidebar-ring: 211 100% 52%;
+
+  /* Dark surfaces + glass */
+  --glass-bg: rgba(28, 28, 30, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --surface-bg: #1c1c1e;
+  --surface-subtle: #2c2c2e;
+  --surface-selected-grad-to: #16263a;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.30);
+
+  /* Softer, deeper shadows on black */
+  --shadow-row: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-row-hover: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --shadow-detail: 0 18px 60px rgba(0, 0, 0, 0.6);
+  --shadow-popover: 0 24px 80px rgba(0, 0, 0, 0.7);
 }
 
 @layer base {
@@ -121,15 +189,15 @@
 @layer utilities {
   /* Translucent glass header / tab surface */
   .apple-glass {
-    background: rgba(255, 255, 255, 0.78);
+    background: var(--glass-bg);
     backdrop-filter: blur(18px) saturate(180%);
     -webkit-backdrop-filter: blur(18px) saturate(180%);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid var(--glass-border);
   }
 
   /* Card / row surface */
   .apple-surface {
-    background: #ffffff;
+    background: var(--surface-bg);
     border: 1px solid hsl(var(--border));
     border-radius: 18px;
     box-shadow: var(--shadow-row);
@@ -141,14 +209,14 @@
     box-shadow: var(--shadow-row-hover);
   }
   .apple-surface-selected {
-    border-color: rgba(0, 122, 255, 0.35);
-    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-    box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.18), var(--shadow-row-hover);
+    border-color: hsl(var(--primary) / 0.35);
+    background: linear-gradient(180deg, var(--surface-bg) 0%, var(--surface-selected-grad-to) 100%);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.18), var(--shadow-row-hover);
   }
 
   /* Detail pane */
   .apple-detail {
-    background: #ffffff;
+    background: var(--surface-bg);
     border: 1px solid hsl(var(--border));
     border-radius: 24px;
     box-shadow: var(--shadow-detail);
@@ -180,6 +248,21 @@
       max-height: calc(100dvh - 9.5rem);
       overflow-y: auto;
     }
+  }
+
+  /* Theme-aware scrollbar (light/dark via CSS variables) */
+  .apple-scroll-col::-webkit-scrollbar {
+    width: 10px;
+  }
+  .apple-scroll-col::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .apple-scroll-col::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: content-box;
   }
 
   /* Hide Chrome search cancel button */

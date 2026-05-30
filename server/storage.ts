@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS emails (
   body TEXT NOT NULL DEFAULT '',
   received_at TEXT NOT NULL,
   classification TEXT NOT NULL DEFAULT 'other',
+  thread_json TEXT,
   processed INTEGER NOT NULL DEFAULT 0,
   ingested_at TEXT NOT NULL
 );
@@ -96,6 +97,7 @@ function ensureColumn(table: string, column: string, definition: string) {
   }
 }
 ensureColumn("emails", "cc_recipients", "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn("emails", "thread_json", "TEXT");
 
 export const db = drizzle(sqlite);
 
@@ -115,6 +117,7 @@ export interface IStorage {
   getTask(id: number): Promise<Task | undefined>;
   updateTask(id: number, patch: Partial<Task>): Promise<Task | undefined>;
   findTaskByConversation(conversationId: string): Promise<Task | undefined>;
+  searchTasks(q: string): Promise<SearchResult[]>;
   // contracts
   createContract(c: InsertContract): Promise<Contract>;
   listContracts(): Promise<Contract[]>;
@@ -128,6 +131,22 @@ export interface IStorage {
 }
 
 const now = () => new Date().toISOString();
+
+export interface SearchResult extends Task {
+  snippet: string;
+  sourceSubject: string | null;
+}
+
+// Pull a short excerpt around the first case-insensitive match of q in text.
+function makeSnippet(text: string, q: string, len = 160): string {
+  if (!text) return "";
+  const flat = text.replace(/\s+/g, " ").trim();
+  const idx = flat.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return flat.slice(0, len) + (flat.length > len ? "…" : "");
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(flat.length, idx + q.length + 100);
+  return (start > 0 ? "…" : "") + flat.slice(start, end) + (end < flat.length ? "…" : "");
+}
 
 export class DatabaseStorage implements IStorage {
   async getEmailByMessageId(messageId: string) {
@@ -170,6 +189,37 @@ export class DatabaseStorage implements IStorage {
   async findTaskByConversation(conversationId: string) {
     if (!conversationId) return undefined;
     return db.select().from(tasks).where(eq(tasks.conversationId, conversationId)).get();
+  }
+  async searchTasks(q: string): Promise<SearchResult[]> {
+    const needle = (q || "").trim().toLowerCase();
+    if (!needle) return [];
+    const [allTasks, allEmails] = await Promise.all([this.listTasks(), this.listEmails()]);
+    const emailById = new Map(allEmails.map((e) => [e.id, e]));
+    const results: SearchResult[] = [];
+    for (const t of allTasks) {
+      const email = t.sourceEmailId != null ? emailById.get(t.sourceEmailId) : undefined;
+      const haystacks: { field: string; text: string }[] = [
+        { field: "title", text: t.title || "" },
+        { field: "description", text: t.description || "" },
+        { field: "assignee", text: `${t.assigneeName || ""} ${t.assigneeEmail || ""}` },
+        { field: "subject", text: email?.subject || "" },
+        { field: "body", text: email?.body || "" },
+        { field: "from", text: `${email?.fromName || ""} ${email?.fromEmail || ""}` },
+      ];
+      const hit = haystacks.find((h) => h.text.toLowerCase().includes(needle));
+      if (!hit) continue;
+      // Prefer a snippet from a longer text field (description/body) when present.
+      const snippetSource =
+        (t.description && t.description.toLowerCase().includes(needle) && t.description) ||
+        (email?.body && email.body.toLowerCase().includes(needle) && email.body) ||
+        hit.text;
+      results.push({
+        ...t,
+        snippet: makeSnippet(snippetSource, needle),
+        sourceSubject: email?.subject ?? null,
+      });
+    }
+    return results;
   }
 
   async createContract(c: InsertContract) {
