@@ -23,6 +23,8 @@ const {
   GRAPH_MAILBOX = "hermes@angelsestate.bg",
 } = process.env;
 
+export const graphMailbox = GRAPH_MAILBOX;
+
 // ── Body cleaning ──────────────────────────────────────
 // Convert an HTML (or already-plaintext) email body into readable plain text
 // that preserves paragraph/line structure, then resolve forwarded content so
@@ -260,7 +262,10 @@ export const usingRealGraph = Boolean(
 );
 
 // ── Microsoft Graph (real inbox) ───────────────────────
-async function getGraphToken(): Promise<string> {
+export async function getGraphToken(): Promise<string> {
+  if (!GRAPH_TENANT_ID || !GRAPH_CLIENT_ID || !GRAPH_CLIENT_SECRET) {
+    throw new Error("Microsoft Graph credentials are not configured. Set GRAPH_TENANT_ID, GRAPH_CLIENT_ID, and GRAPH_CLIENT_SECRET.");
+  }
   const url = `https://login.microsoftonline.com/${GRAPH_TENANT_ID}/oauth2/v2.0/token`;
   const body = new URLSearchParams({
     client_id: GRAPH_CLIENT_ID!,

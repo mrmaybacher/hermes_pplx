@@ -3,6 +3,51 @@ import type { Server } from "node:http";
 import { storage } from "./storage";
 import { runWatcherOnce, getWatcherStatus, startWatcher } from "./watcher";
 import { updateTaskSchema } from "@shared/schema";
+import type { Person, Task } from "@shared/schema";
+import { buildPersonDigestHtml, GraphMailError, sendGraphMail } from "./sendMail";
+
+type PersonWithOpenTasks = Person & {
+  openCount: number;
+  overdueCount: number;
+  tasks: Task[];
+};
+
+async function listPeopleWithOpenTasks(): Promise<PersonWithOpenTasks[]> {
+  const [people, tasks] = await Promise.all([storage.listPeople(), storage.listTasks()]);
+  const today = new Date().toISOString().slice(0, 10);
+  return people.map((p) => {
+    const theirs = tasks.filter(
+      (t) => t.assigneeEmail === p.email && (t.status === "open" || t.status === "in_progress")
+    );
+    return {
+      ...p,
+      openCount: theirs.length,
+      overdueCount: theirs.filter((t) => t.dueDate && t.dueDate < today).length,
+      tasks: theirs,
+    };
+  }).sort((a, b) => b.openCount - a.openCount);
+}
+
+function normalize(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function findDigestPerson(people: PersonWithOpenTasks[], body: unknown): PersonWithOpenTasks | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const input = body as { personId?: unknown; personName?: unknown; personEmail?: unknown };
+  if (typeof input.personId === "number" && Number.isFinite(input.personId)) {
+    return people.find((p) => p.id === input.personId);
+  }
+  if (typeof input.personId === "string" && input.personId.trim()) {
+    const id = Number(input.personId);
+    if (Number.isFinite(id)) return people.find((p) => p.id === id);
+  }
+  const email = normalize(input.personEmail);
+  if (email) return people.find((p) => p.email.toLowerCase() === email);
+  const name = normalize(input.personName);
+  if (name) return people.find((p) => p.name.toLowerCase() === name);
+  return undefined;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -45,6 +90,43 @@ export async function registerRoutes(
     const { reprocessAll } = await import("./reprocess");
     const result = await reprocessAll();
     res.json(result);
+  });
+
+  // Admin/test trigger: send one person's open-task digest via Microsoft Graph.
+  app.post("/api/admin/send-digest", async (req, res) => {
+    try {
+      const people = await listPeopleWithOpenTasks();
+      const person = findDigestPerson(people, req.body);
+      if (!person) {
+        return res.status(404).json({
+          ok: false,
+          error: "Person not found. Provide personId, personName, or personEmail.",
+        });
+      }
+      if (person.tasks.length === 0) {
+        return res.status(400).json({
+          ok: false,
+          error: `No open tasks found for ${person.name}.`,
+        });
+      }
+
+      const body = (req.body && typeof req.body === "object") ? req.body as { to?: unknown } : {};
+      const to = typeof body.to === "string" && body.to.trim() ? body.to.trim() : person.email;
+      const { subject, html, taskCount } = buildPersonDigestHtml(person);
+      await sendGraphMail({ to, subject, html });
+      res.json({ ok: true, to, personName: person.name, taskCount, subject });
+    } catch (error) {
+      if (error instanceof GraphMailError) {
+        return res.status(error.status >= 400 && error.status < 600 ? error.status : 502).json({
+          ok: false,
+          error: error.message,
+          graphStatus: error.status,
+          graphResponse: error.responseText,
+        });
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ ok: false, error: message });
+    }
   });
 
   // ── Tasks ──
@@ -98,20 +180,7 @@ export async function registerRoutes(
 
   // ── People (who owes the user) ──
   app.get("/api/people", async (_req, res) => {
-    const [people, tasks] = await Promise.all([storage.listPeople(), storage.listTasks()]);
-    const today = new Date().toISOString().slice(0, 10);
-    const enriched = people.map((p) => {
-      const theirs = tasks.filter(
-        (t) => t.assigneeEmail === p.email && (t.status === "open" || t.status === "in_progress")
-      );
-      return {
-        ...p,
-        openCount: theirs.length,
-        overdueCount: theirs.filter((t) => t.dueDate && t.dueDate < today).length,
-        tasks: theirs,
-      };
-    }).sort((a, b) => b.openCount - a.openCount);
-    res.json(enriched);
+    res.json(await listPeopleWithOpenTasks());
   });
 
   // ── Contracts (retired) ──
