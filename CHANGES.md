@@ -1,3 +1,103 @@
+# Hermes v2 — Changes
+
+Seven follow-up changes layered on the Light Apple redesign. All SQLite schema
+changes are additive & idempotent (existing prod `data.db` is never dropped).
+The production frontend remains the Vite React app (no HUD overwrite).
+
+### 1. Dark theme + persisted toggle button
+- **`client/src/index.css`** — Added a `.dark` selector overriding the same CSS
+  variables with a dark Apple palette (bg `#000`, surfaces `#1C1C1E`, elevated
+  `#2C2C2E`, hairline `#38383A`, text `#F5F5F7`/`#A1A1A6`, accent `#0A84FF`,
+  success `#30D158`, destructive `#FF453A`). Hardcoded surface hexes in
+  `.apple-glass/.apple-surface/.apple-detail` now read from new variables
+  (`--glass-bg`, `--surface-bg`, `--surface-subtle`, `--surface-selected-grad-to`,
+  scrollbar tokens) so both themes recolour automatically. Added a theme-aware
+  webkit scrollbar on `.apple-scroll-col`.
+- **`client/src/components/hermes/ThemeToggle.tsx`** *(new)* — Sun/Moon pill
+  button. Toggles `<html>.dark`, persists to `localStorage["hermes-theme"]`,
+  defaults to LIGHT when unset (manual, never auto-follows system).
+- **`client/index.html`** — Inline `<head>` script applies the saved class
+  before first paint (no flash).
+- **`client/src/pages/Dashboard.tsx`** — ThemeToggle placed in the header next to
+  Scan Inbox; live/demo pill + People overdue colours moved to theme tokens.
+- **`TaskRow.tsx` / `EmailDetail.tsx`** — Hardcoded action/badge/surface hexes
+  replaced with `success`/`destructive`/`secondary` tokens and `bg-secondary/*`.
+
+### 2. Email body formatting (numbered/bulleted lists)
+- **`server/emailSource.ts`** — `htmlToText()` now runs a stateful `markListItems`
+  pass FIRST: it tracks an `<ol>`/`<ul>` stack and rewrites each `<li>` to a
+  leading `\n1. ` (per-ol counter) or `\n• `. `<li>` was removed from the generic
+  block-newline rule so markers aren't double-inserted. A 6-point `<ol>` now
+  renders as 6 consecutive numbered lines.
+
+### 3. Full email thread / chain rendering
+- **`server/emailSource.ts`** — New exported `splitThread(body)` →
+  `ThreadSegment[]` splits a cleaned body on forward separators and repeated
+  `From:/Sent:/To:/Subject:` header blocks, parsing each header block into
+  fields. Returns `[]` when there is no clear multi-message split. Defensive
+  (never throws). Also added best-effort `fetchConversation(conversationId)`
+  (3b) for Graph `conversationId` siblings — implemented but **not yet wired**
+  into ingestion (see TODO); 3a in-body parsing is the primary chain source.
+- **`shared/schema.ts`** — Added additive nullable `threadJson` (`thread_json
+  TEXT`) to `emails`, plus `threadJson` on the `Email`/`InsertEmail` types.
+- **`server/storage.ts`** — `thread_json` added to `CREATE TABLE emails` and a
+  guarded `ensureColumn("emails","thread_json","TEXT")` migration.
+- **`server/watcher.ts`** — `processEmail` computes `splitThread(raw.body)` and
+  persists it as JSON on the processed email (null for the "other" path).
+- **`server/routes.ts`** — `/api/tasks/:id/detail` now returns `threadSegments`
+  (parsed from the source email's `threadJson`, default `[]`).
+- **`client/src/lib/api.ts`** — Added `ThreadSegment`, `threadSegments` on
+  `TaskDetail`, `threadJson` on `EmailRow`.
+- **`client/src/components/hermes/EmailDetail.tsx`** — Replaced `splitForwarded`
+  with a stacked chain view: when `threadSegments.length > 1` it renders one
+  `ChainCard` per message (muted From/Sent/To/Subject header + `whitespace-pre-wrap`
+  body) using theme-aware surfaces. Single-body fallback otherwise; existing
+  conversation replies still shown below.
+
+### 4. Assignee inference (agro@ → Agro)
+- **`server/watcher.ts`** — Recipient inference now also triggers when GPT set the
+  assignee to the owner or Hermes address (treated like null), so a specific To
+  recipient such as `agro@angelsestate.bg` wins → "Agro". `displayNameFromEmail`
+  capitalization unchanged.
+
+### 5. Search across ALL tasks
+- **`server/storage.ts`** — `searchTasks(q)` loads all tasks + a map of all emails
+  and matches (case-insensitive substring) on task title/description/assignee and
+  the source email subject/body/from; returns enriched rows with a `snippet`
+  excerpt and `sourceSubject`. Blank `q` → `[]`.
+- **`server/routes.ts`** — `GET /api/search?q=...`.
+- **`client/src/lib/api.ts`** — Added `SearchResult` type.
+- **`client/src/components/hermes/SearchResults.tsx`** *(new)* — Master-detail
+  results view; each row shows title, a status chip (Open/Done/Deleted/Cancelled),
+  assignee, created date, and snippet; clicking opens the task in `EmailDetail`.
+- **`client/src/pages/Dashboard.tsx`** — Rounded search pill (lucide `Search`,
+  clear `X`) in the header, debounced ~250ms; a non-empty query swaps the main
+  area to `<SearchResults>` while keeping tabs visible. `StatusChip` exported from
+  `TaskRow.tsx`.
+
+### 6. Tab order
+- **`client/src/pages/Dashboard.tsx`** — `TABS` reordered to Inbox, **People**,
+  Done, Deleted, Activity. Badge logic (inbox/done/deleted) unaffected.
+
+### 7. Worker schedule (hourly, 07:00–19:00 Europe/Sofia, paused overnight)
+- **`server/watcher.ts`** — The fixed 10-min `setInterval(runWatcherOnce)` is now
+  an hourly `scheduledTick` gated to the active window: it computes the current
+  hour in `Europe/Sofia` via `Intl.DateTimeFormat` and only runs when
+  `hour >= ACTIVE_START && hour <= ACTIVE_END` (7–19 inclusive). Env-configurable:
+  `HERMES_WATCH_INTERVAL_MIN` (60), `HERMES_ACTIVE_START` (7), `HERMES_ACTIVE_END`
+  (19), `HERMES_TZ` (Europe/Sofia). First-boot sync still runs once regardless of
+  window (real Graph) / primes the demo feed. Manual `POST /api/watcher/run`
+  ("Scan Inbox") unchanged. `getWatcherStatus()` now reports `intervalMinutes` and
+  `activeWindow` (e.g. "07:00–19:00 Europe/Sofia"), surfaced in the pill tooltip.
+
+### TODOs
+- **3b** — `fetchConversation()` exists but is not wired into ingestion. Follow-up:
+  in `watcher.processEmail` (or a post-pass), merge Graph `conversationId` siblings
+  into the persisted chain. Deferred to keep ingestion safe; 3a covers the
+  forwarded-thread screenshot case.
+
+---
+
 # Hermes Redesign — Changes
 
 Redesign of Hermes into a light, Apple-styled email-to-task command center. Stack

@@ -28,22 +28,29 @@ function AssigneeChip({ name }: { name: string | null }) {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; fg: string; label: string }> = {
-    done: { bg: "#E8F8ED", fg: "#1D7F3A", label: "Done" },
-    deleted: { bg: "#FFECEC", fg: "#C21807", label: "Deleted" },
-    cancelled: { bg: "#F2F2F7", fg: "#6E6E73", label: "Cancelled" },
-  };
-  const s = map[status];
+// Theme-aware status chip. Colours derive from CSS tokens so the dark palette
+// recolours them automatically.
+const STATUS_CHIP: Record<string, { cls: string; label: string }> = {
+  open: { cls: "bg-primary/15 text-primary", label: "Open" },
+  in_progress: { cls: "bg-primary/15 text-primary", label: "Open" },
+  done: { cls: "bg-success/15 text-success", label: "Done" },
+  deleted: { cls: "bg-destructive/15 text-destructive", label: "Deleted" },
+  cancelled: { cls: "bg-secondary text-muted-foreground", label: "Cancelled" },
+};
+
+export function StatusChip({ status }: { status: string }) {
+  const s = STATUS_CHIP[status];
   if (!s) return null;
   return (
-    <span
-      className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold"
-      style={{ backgroundColor: s.bg, color: s.fg }}
-    >
+    <span className={`rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${s.cls}`}>
       {s.label}
     </span>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === "open" || status === "in_progress") return null;
+  return <StatusChip status={status} />;
 }
 
 const actionBtn =
@@ -79,7 +86,7 @@ export function TaskRow({
               {createdLabel(task.createdAt)}
             </span>
             {overdue && (
-              <span className="rounded-full bg-[#FFECEC] px-2 py-0.5 text-[12px] font-semibold text-[#C21807]">
+              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-[12px] font-semibold text-destructive">
                 Overdue
               </span>
             )}
@@ -91,21 +98,19 @@ export function TaskRow({
             <>
               <button
                 type="button" onClick={onDone} aria-label={`Mark "${task.title}" done`}
-                className={`${actionBtn} text-white`}
-                style={{ backgroundColor: "#34C759" }}
+                className={`${actionBtn} bg-success text-white hover:opacity-90`}
               >
                 <Check size={16} /> <span className="hidden sm:inline">Done</span>
               </button>
               <button
                 type="button" onClick={onCancel} aria-label={`Cancel "${task.title}"`}
-                className={`${actionBtn} bg-secondary text-[#3A3A3C] hover:bg-[#E8E8ED]`}
+                className={`${actionBtn} bg-secondary text-foreground hover:opacity-80`}
               >
                 <Ban size={16} /> <span className="hidden sm:inline">Cancel</span>
               </button>
               <button
                 type="button" onClick={onDelete} aria-label={`Delete "${task.title}"`}
-                className={`${actionBtn}`}
-                style={{ backgroundColor: "#FFF2F2", color: "#D70015" }}
+                className={`${actionBtn} bg-destructive/12 text-destructive hover:bg-destructive/20`}
               >
                 <Trash2 size={16} /> <span className="hidden sm:inline">Delete</span>
               </button>
@@ -114,7 +119,7 @@ export function TaskRow({
           {mode !== "inbox" && (
             <button
               type="button" onClick={onRestore} aria-label={`Restore "${task.title}" to Inbox`}
-              className={`${actionBtn} bg-secondary text-foreground hover:bg-[#E8E8ED]`}
+              className={`${actionBtn} bg-secondary text-foreground hover:opacity-80`}
             >
               <RotateCcw size={15} /> <span className="hidden sm:inline">Restore</span>
             </button>

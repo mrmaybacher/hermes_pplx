@@ -18,6 +18,7 @@ export const emails = sqliteTable("emails", {
   body: text("body").notNull().default(""),
   receivedAt: text("received_at").notNull(),         // ISO timestamp
   classification: text("classification").notNull().default("other"), // task | contract | reply | other
+  threadJson: text("thread_json"),                   // JSON array of ThreadSegment (parsed chain) or null
   processed: integer("processed", { mode: "boolean" }).notNull().default(false),
   ingestedAt: text("ingested_at").notNull(),
 });

@@ -8,10 +8,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskRow } from "@/components/hermes/TaskRow";
 import { EmailDetail } from "@/components/hermes/EmailDetail";
+import { ThemeToggle } from "@/components/hermes/ThemeToggle";
+import { SearchResults } from "@/components/hermes/SearchResults";
 import { useTaskActions } from "@/components/hermes/useTaskActions";
 import {
   RefreshCw, Inbox, CheckCircle2, Archive, Activity as ActivityIcon,
-  Users, ListChecks, Mail, Reply,
+  Users, ListChecks, Mail, Reply, Search, X,
 } from "lucide-react";
 
 const REFRESH_MS = 5 * 60 * 1000;
@@ -22,10 +24,10 @@ type ArchiveFilter = "all" | "deleted" | "cancelled";
 
 const TABS: { key: Tab; label: string; icon: typeof Inbox }[] = [
   { key: "inbox", label: "Inbox", icon: Inbox },
+  { key: "people", label: "People", icon: Users },
   { key: "done", label: "Done", icon: CheckCircle2 },
   { key: "deleted", label: "Deleted", icon: Archive },
   { key: "activity", label: "Activity", icon: ActivityIcon },
-  { key: "people", label: "People", icon: Users },
 ];
 
 function sortTasks(list: Task[]): Task[] {
@@ -44,6 +46,15 @@ export default function Dashboard() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [leavingId, setLeavingId] = useState<number | null>(null);
   const [mobileDetail, setMobileDetail] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Debounce the search input (~250ms) into the query that drives the request.
+  useEffect(() => {
+    const id = window.setTimeout(() => setSearchQuery(searchInput.trim()), 250);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+  const searching = searchQuery.length > 0;
 
   const status = useQuery<StatusResponse>({ queryKey: ["/api/status"], refetchInterval: REFRESH_MS });
   const tasksQ = useQuery<Task[]>({ queryKey: ["/api/tasks"], refetchInterval: REFRESH_MS });
@@ -116,21 +127,47 @@ export default function Dashboard() {
             Email-to-task command center
           </span>
           <div className="ml-auto flex items-center gap-2.5">
+            {/* Search across ALL tasks (any status) */}
+            <div className="relative">
+              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search all tasks…"
+                aria-label="Search all tasks"
+                className="h-10 w-40 rounded-full border border-border bg-card pl-9 pr-8 text-[15px] text-foreground placeholder:text-muted-foreground transition-[width] focus:w-56 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-48 sm:focus:w-64"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchInput(""); setSearchQuery(""); }}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             <span
               className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold"
               style={live
-                ? { borderColor: "#34C75955", background: "#E8F8ED", color: "#1D7F3A" }
-                : { borderColor: "#FF9F0A55", background: "#FFF6E5", color: "#9A6200" }}
-              title={w?.lastRunAt ? `Last run ${relTime(w.lastRunAt)}` : "No runs yet"}
+                ? { borderColor: "hsl(var(--success) / 0.4)", background: "hsl(var(--success) / 0.14)", color: "hsl(var(--success))" }
+                : { borderColor: "hsl(var(--warning) / 0.4)", background: "hsl(var(--warning) / 0.14)", color: "hsl(var(--warning))" }}
+              title={
+                (w?.lastRunAt ? `Last run ${relTime(w.lastRunAt)}` : "No runs yet") +
+                (w?.activeWindow ? ` · active ${w.activeWindow}` : "")
+              }
             >
-              <span className="h-2 w-2 rounded-full" style={{ background: live ? "#34C759" : "#FF9F0A" }} />
+              <span className="h-2 w-2 rounded-full" style={{ background: live ? "hsl(var(--success))" : "hsl(var(--warning))" }} />
               {live ? "Live inbox" : "Demo feed"}
             </span>
+            <ThemeToggle />
             <button
               type="button"
               onClick={() => runNow.mutate()}
               disabled={runNow.isPending}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-colors hover:bg-[#0066D6] disabled:opacity-60"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-4 text-[15px] font-semibold text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-60"
             >
               <RefreshCw size={16} className={runNow.isPending ? "animate-spin" : ""} />
               {runNow.isPending ? "Scanning…" : "Scan Inbox"}
@@ -176,28 +213,34 @@ export default function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8 sm:py-8">
-        {(tab === "inbox" || tab === "done" || tab === "deleted") && (
-          <TaskTab
-            tab={tab}
-            rowMode={rowMode}
-            list={listForTab}
-            loading={tasksQ.isLoading}
-            selectedId={selectedId}
-            selectedTask={selectedTask}
-            leavingId={leavingId}
-            mobileDetail={mobileDetail}
-            archiveFilter={archiveFilter}
-            setArchiveFilter={setArchiveFilter}
-            onSelect={(id) => { setSelectedId(id); setMobileDetail(true); }}
-            onBack={() => setMobileDetail(false)}
-            onDone={(id) => act(id, actions.markDone)}
-            onDelete={(id) => act(id, actions.remove)}
-            onCancel={(id) => act(id, actions.cancel)}
-            onRestore={(id) => act(id, actions.restore)}
-          />
+        {searching ? (
+          <SearchResults query={searchQuery} />
+        ) : (
+          <>
+            {(tab === "inbox" || tab === "done" || tab === "deleted") && (
+              <TaskTab
+                tab={tab}
+                rowMode={rowMode}
+                list={listForTab}
+                loading={tasksQ.isLoading}
+                selectedId={selectedId}
+                selectedTask={selectedTask}
+                leavingId={leavingId}
+                mobileDetail={mobileDetail}
+                archiveFilter={archiveFilter}
+                setArchiveFilter={setArchiveFilter}
+                onSelect={(id) => { setSelectedId(id); setMobileDetail(true); }}
+                onBack={() => setMobileDetail(false)}
+                onDone={(id) => act(id, actions.markDone)}
+                onDelete={(id) => act(id, actions.remove)}
+                onCancel={(id) => act(id, actions.cancel)}
+                onRestore={(id) => act(id, actions.restore)}
+              />
+            )}
+            {tab === "activity" && <ActivityTab q={activityQ} />}
+            {tab === "people" && <PeopleTab q={peopleQ} />}
+          </>
         )}
-        {tab === "activity" && <ActivityTab q={activityQ} />}
-        {tab === "people" && <PeopleTab q={peopleQ} />}
       </main>
     </div>
   );
@@ -353,8 +396,8 @@ function PeopleTab({ q }: { q: ReturnType<typeof useQuery<PersonRow[]>> }) {
                   </div>
                   {p.overdueCount > 0 && (
                     <div>
-                      <div className="text-[20px] font-semibold tabular-nums leading-none" style={{ color: "#FF3B30" }}>{p.overdueCount}</div>
-                      <div className="mt-1 text-[12px] font-medium" style={{ color: "#C21807" }}>Overdue</div>
+                      <div className="text-[20px] font-semibold tabular-nums leading-none text-destructive">{p.overdueCount}</div>
+                      <div className="mt-1 text-[12px] font-medium text-destructive">Overdue</div>
                     </div>
                   )}
                 </div>

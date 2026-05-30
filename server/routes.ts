@@ -62,7 +62,7 @@ export async function registerRoutes(
     res.json(updated);
   });
 
-  // ── Task detail: task + its source email + linked thread replies ──
+  // ── Task detail: task + its source email + parsed chain + linked replies ──
   app.get("/api/tasks/:id/detail", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const task = await storage.getTask(id);
@@ -71,7 +71,21 @@ export async function registerRoutes(
     const thread = task.conversationId
       ? await storage.listThreadMessages(task.conversationId)
       : [];
-    res.json({ task, sourceEmail, thread });
+    // Parsed in-body chain segments (3a). Defensive JSON parse → [].
+    let threadSegments: unknown[] = [];
+    if (sourceEmail?.threadJson) {
+      try {
+        const parsed = JSON.parse(sourceEmail.threadJson);
+        if (Array.isArray(parsed)) threadSegments = parsed;
+      } catch { /* ignore malformed JSON */ }
+    }
+    res.json({ task, sourceEmail, thread, threadSegments });
+  });
+
+  // ── Search across ALL tasks (any status) ──
+  app.get("/api/search", async (req, res) => {
+    const q = typeof req.query.q === "string" ? req.query.q : "";
+    res.json(await storage.searchTasks(q));
   });
 
   // ── People (who owes the user) ──

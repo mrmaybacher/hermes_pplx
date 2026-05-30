@@ -1,22 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Trash2, Ban, MailX, CornerDownRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { TaskDetail, Task } from "@/lib/api";
+import type { TaskDetail, Task, ThreadSegment } from "@/lib/api";
 import {
   assigneeLabel, initials, createdLabel, fullDateTime, relTime, parseRecipients,
 } from "@/lib/api";
-
-const FORWARD_RE = /(-{2,}\s*Forwarded message\s*-{2,}|Begin forwarded message:|-{2,}\s*Original Message\s*-{2,})/i;
-
-// Split a body into an optional wrapper note + the forwarded section.
-function splitForwarded(body: string): { wrapper: string | null; forwarded: string | null } {
-  const m = body.match(FORWARD_RE);
-  if (!m || m.index === undefined) return { wrapper: null, forwarded: null };
-  const wrapper = body.slice(0, m.index).trim();
-  const forwarded = body.slice(m.index + m[0].length).trim();
-  if (!forwarded) return { wrapper: null, forwarded: null };
-  return { wrapper: wrapper || null, forwarded };
-}
 
 const headerBtn =
   "inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-4 text-[15px] font-semibold transition-colors";
@@ -39,6 +27,42 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// One message in a parsed forwarded chain. The header (From/Sent/To/Subject) is
+// rendered as a compact muted row above the message body.
+function ChainCard({ seg, top }: { seg: ThreadSegment; top: boolean }) {
+  const hasHeader = seg.from || seg.sent || seg.to || seg.subject;
+  return (
+    <div className="rounded-2xl border border-border bg-secondary/40 p-4">
+      {top && !hasHeader ? (
+        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Top message
+        </div>
+      ) : hasHeader ? (
+        <div className="mb-2 space-y-0.5 border-b border-border pb-2 text-[13px]">
+          {seg.from && <ChainHeader label="From" value={seg.from} />}
+          {seg.sent && <ChainHeader label="Sent" value={seg.sent} />}
+          {seg.to && <ChainHeader label="To" value={seg.to} />}
+          {seg.subject && <ChainHeader label="Subject" value={seg.subject} />}
+        </div>
+      ) : null}
+      {seg.text ? (
+        <p className="whitespace-pre-wrap text-[15px] leading-[24px] text-foreground">{seg.text}</p>
+      ) : (
+        <p className="text-[14px] italic text-muted-foreground">No body text.</p>
+      )}
+    </div>
+  );
+}
+
+function ChainHeader({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-14 shrink-0 font-semibold text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words text-foreground">{value}</span>
+    </div>
+  );
+}
+
 export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }: Props) {
   const { data, isLoading } = useQuery<TaskDetail>({
     queryKey: ["/api/tasks", taskId, "detail"],
@@ -49,7 +73,8 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
   const to = parseRecipients(email?.toRecipients);
   const cc = parseRecipients(email?.ccRecipients);
   const body = (email?.body || "").trim() || (email?.bodyPreview || "").trim();
-  const { wrapper, forwarded } = body ? splitForwarded(body) : { wrapper: null, forwarded: null };
+  const segments: ThreadSegment[] = data?.threadSegments ?? [];
+  const hasChain = segments.length > 1;
   const isActive = task ? (task.status === "open" || task.status === "in_progress") : false;
 
   return (
@@ -66,13 +91,13 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
           </button>
           {isActive && (
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <button type="button" onClick={onDone} className={`${headerBtn} text-white`} style={{ backgroundColor: "#34C759" }} aria-label="Mark done">
+              <button type="button" onClick={onDone} className={`${headerBtn} bg-success text-white hover:opacity-90`} aria-label="Mark done">
                 <Check size={17} /> Done
               </button>
-              <button type="button" onClick={onCancel} className={`${headerBtn} bg-secondary text-[#3A3A3C] hover:bg-[#E8E8ED]`} aria-label="Cancel task">
+              <button type="button" onClick={onCancel} className={`${headerBtn} bg-secondary text-foreground hover:opacity-80`} aria-label="Cancel task">
                 <Ban size={16} /> Cancel
               </button>
-              <button type="button" onClick={onDelete} className={headerBtn} style={{ backgroundColor: "#FFF2F2", color: "#D70015" }} aria-label="Delete task">
+              <button type="button" onClick={onDelete} className={`${headerBtn} bg-destructive/12 text-destructive hover:bg-destructive/20`} aria-label="Delete task">
                 <Trash2 size={16} /> Delete
               </button>
             </div>
@@ -104,7 +129,7 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
             </div>
 
             {email && (
-              <div className="space-y-1.5 rounded-2xl border border-border bg-[#FAFAFC] p-4">
+              <div className="space-y-1.5 rounded-2xl border border-border bg-secondary/50 p-4">
                 <MetaRow label="From" value={`${email.fromName} <${email.fromEmail}>`} />
                 {to.length > 0 && <MetaRow label="To" value={to.join(", ")} />}
                 {cc.length > 0 && <MetaRow label="Cc" value={cc.join(", ")} />}
@@ -112,25 +137,25 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
               </div>
             )}
 
-            {/* Body — never blank when content exists anywhere */}
-            {body ? (
+            {/* Body — full chain when the forwarded email holds several messages,
+                otherwise the single body. Never blank when content exists. */}
+            {hasChain ? (
+              <div className="max-w-[760px]">
+                <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground">
+                  <CornerDownRight size={14} /> Thread — {segments.length} messages
+                </div>
+                <div className="flex flex-col gap-3">
+                  {segments.map((seg, i) => (
+                    <ChainCard key={i} seg={seg} top={i === 0} />
+                  ))}
+                </div>
+              </div>
+            ) : body ? (
               <div className="max-w-[760px] text-[16px] leading-[26px] text-foreground">
-                {wrapper && forwarded ? (
-                  <>
-                    <p className="whitespace-pre-wrap">{wrapper}</p>
-                    <div className="mt-5 rounded-2xl border border-border bg-[#FAFAFC] p-4">
-                      <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground">
-                        <CornerDownRight size={14} /> Forwarded message
-                      </div>
-                      <p className="whitespace-pre-wrap">{forwarded}</p>
-                    </div>
-                  </>
-                ) : (
-                  <p className="whitespace-pre-wrap">{body}</p>
-                )}
+                <p className="whitespace-pre-wrap">{segments[0]?.text || body}</p>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-[#FAFAFC] py-12 text-center">
+              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-secondary/50 py-12 text-center">
                 <MailX size={28} className="text-muted-foreground/60" />
                 <p className="text-[15px] font-medium text-foreground">Email body could not be extracted</p>
                 <p className="max-w-sm text-[14px] text-muted-foreground">
