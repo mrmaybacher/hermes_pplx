@@ -71,11 +71,19 @@ export interface ThreadSegment {
   text: string;
 }
 
+export interface TaskItem {
+  id: number;
+  position: number;
+  text: string;
+  done: boolean;
+}
+
 export interface TaskDetail {
   task: Task;
   sourceEmail: EmailRow | null;
   thread: ThreadMsg[];
   threadSegments?: ThreadSegment[];
+  items?: TaskItem[];
 }
 
 // A task matched by the cross-status search, with a matched excerpt.

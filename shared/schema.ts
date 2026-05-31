@@ -84,6 +84,19 @@ export const activity = sqliteTable("activity", {
   createdAt: text("created_at").notNull(),
 });
 
+// ── Task checklist items ───────────────────────────────
+// Parsed from the primary email body. Independent from parent task status.
+export const taskItems = sqliteTable("task_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  taskId: integer("task_id").notNull(),
+  position: integer("position").notNull(),
+  text: text("text").notNull(),
+  textNorm: text("text_norm").notNull(),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 // ── Insert schemas / types ─────────────────────────────
 export const insertEmailSchema = createInsertSchema(emails).omit({ id: true });
 export const insertPersonSchema = createInsertSchema(people).omit({ id: true });
@@ -91,6 +104,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true });
 export const insertContractSchema = createInsertSchema(contracts).omit({ id: true });
 export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true });
 export const insertActivitySchema = createInsertSchema(activity).omit({ id: true });
+export const insertTaskItemSchema = createInsertSchema(taskItems).omit({ id: true });
 
 export type Email = typeof emails.$inferSelect;
 export type InsertEmail = z.infer<typeof insertEmailSchema>;
@@ -104,6 +118,8 @@ export type ThreadMessage = typeof threadMessages.$inferSelect;
 export type InsertThreadMessage = z.infer<typeof insertThreadMessageSchema>;
 export type Activity = typeof activity.$inferSelect;
 export type InsertActivity = z.infer<typeof insertActivitySchema>;
+export type TaskItem = typeof taskItems.$inferSelect;
+export type InsertTaskItem = z.infer<typeof insertTaskItemSchema>;
 
 // Patch schema for task updates from the dashboard
 export const updateTaskSchema = z.object({
