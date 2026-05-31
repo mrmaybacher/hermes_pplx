@@ -1,14 +1,14 @@
 import {
-  emails, people, tasks, contracts, threadMessages, activity,
+  emails, people, tasks, contracts, threadMessages, activity, taskItems,
 } from "@shared/schema";
 import type {
   Email, InsertEmail, Person, InsertPerson, Task, InsertTask,
   Contract, InsertContract, ThreadMessage, InsertThreadMessage,
-  Activity, InsertActivity,
+  Activity, InsertActivity, TaskItem, InsertTaskItem,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 
 // DB location is configurable so Docker can point it at a persistent volume
 // (HERMES_DB_PATH=/app/data/data.db). Defaults to ./data.db for local/dev.
@@ -84,6 +84,19 @@ CREATE TABLE IF NOT EXISTS activity (
   entity_id INTEGER,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS task_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL,
+  position INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  text_norm TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(task_id) REFERENCES tasks(id),
+  UNIQUE(task_id, text_norm)
+);
+CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id);
 `);
 
 // Additive, idempotent migrations for databases created before a column was
@@ -120,6 +133,10 @@ export interface IStorage {
   findTaskByConversation(conversationId: string): Promise<Task | undefined>;
   listTasksBySourceEmail(emailId: number): Promise<Task[]>;
   searchTasks(q: string): Promise<SearchResult[]>;
+  // task items
+  listTaskItems(taskId: number): Promise<TaskItem[]>;
+  upsertTaskItems(taskId: number, items: Pick<InsertTaskItem, "position" | "text" | "textNorm">[]): Promise<TaskItem[]>;
+  updateTaskItem(taskId: number, itemId: number, done: boolean): Promise<TaskItem | undefined>;
   // contracts
   createContract(c: InsertContract): Promise<Contract>;
   listContracts(): Promise<Contract[]>;
@@ -228,6 +245,45 @@ export class DatabaseStorage implements IStorage {
       });
     }
     return results;
+  }
+
+
+  async listTaskItems(taskId: number) {
+    return db.select().from(taskItems).where(eq(taskItems.taskId, taskId)).orderBy(taskItems.position, taskItems.id).all();
+  }
+  async upsertTaskItems(taskId: number, items: Pick<InsertTaskItem, "position" | "text" | "textNorm">[]) {
+    const ts = now();
+    return db.transaction((tx) => {
+      for (const item of items) {
+        const existing = tx.select().from(taskItems)
+          .where(and(eq(taskItems.taskId, taskId), eq(taskItems.textNorm, item.textNorm)))
+          .get();
+        if (existing) {
+          tx.update(taskItems)
+            .set({ position: item.position, text: item.text, updatedAt: ts })
+            .where(eq(taskItems.id, existing.id))
+            .run();
+        } else {
+          tx.insert(taskItems).values({
+            taskId,
+            position: item.position,
+            text: item.text,
+            textNorm: item.textNorm,
+            done: false,
+            createdAt: ts,
+            updatedAt: ts,
+          }).run();
+        }
+      }
+      return tx.select().from(taskItems).where(eq(taskItems.taskId, taskId)).orderBy(taskItems.position, taskItems.id).all();
+    });
+  }
+  async updateTaskItem(taskId: number, itemId: number, done: boolean) {
+    return db.update(taskItems)
+      .set({ done, updatedAt: now() })
+      .where(and(eq(taskItems.id, itemId), eq(taskItems.taskId, taskId)))
+      .returning()
+      .get();
   }
 
   async createContract(c: InsertContract) {

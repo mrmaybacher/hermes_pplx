@@ -3,8 +3,12 @@ import type { Server } from "node:http";
 import { storage } from "./storage";
 import { runWatcherOnce, getWatcherStatus, startWatcher } from "./watcher";
 import { updateTaskSchema } from "@shared/schema";
+import { z } from "zod";
 import type { Person, Task } from "@shared/schema";
 import { buildPersonDigestHtml, GraphMailError, sendGraphMail } from "./sendMail";
+import { syncOpenTaskChecklists } from "./checklist";
+
+const updateTaskItemSchema = z.object({ done: z.boolean() });
 
 type PersonWithOpenTasks = Person & {
   openCount: number;
@@ -92,6 +96,12 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // Admin checklist backfill: parse active Inbox tasks only. Idempotent and additive.
+  app.post("/api/admin/sync-checklists", async (_req, res) => {
+    const result = await syncOpenTaskChecklists();
+    res.json(result);
+  });
+
   // Admin/test trigger: send one person's open-task digest via Microsoft Graph.
   app.post("/api/admin/send-digest", async (req, res) => {
     try {
@@ -169,7 +179,28 @@ export async function registerRoutes(
         if (Array.isArray(parsed)) threadSegments = parsed;
       } catch { /* ignore malformed JSON */ }
     }
-    res.json({ task, sourceEmail, thread, threadSegments });
+    const items = (await storage.listTaskItems(id)).map((item) => ({
+      id: item.id,
+      position: item.position,
+      text: item.text,
+      done: item.done,
+    }));
+    res.json({ task, sourceEmail, thread, threadSegments, items });
+  });
+
+  app.patch("/api/tasks/:id/items/:itemId", async (req, res) => {
+    const taskId = parseInt(req.params.id, 10);
+    const itemId = parseInt(req.params.itemId, 10);
+    const parsed = updateTaskItemSchema.safeParse(req.body);
+    if (!Number.isFinite(taskId) || !Number.isFinite(itemId)) {
+      return res.status(400).json({ message: "Invalid task or item id" });
+    }
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid update", errors: parsed.error.flatten() });
+    }
+    const updated = await storage.updateTaskItem(taskId, itemId, parsed.data.done);
+    if (!updated) return res.status(404).json({ message: "Checklist item not found" });
+    res.json({ id: updated.id, position: updated.position, text: updated.text, done: updated.done });
   });
 
   // ── Search across ALL tasks (any status) ──

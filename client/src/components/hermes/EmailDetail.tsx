@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Trash2, Ban, MailX, CornerDownRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ArrowLeft, Check, Trash2, Ban, MailX, CornerDownRight, ListChecks } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { TaskDetail, Task, ThreadSegment } from "@/lib/api";
+import type { TaskDetail, Task, ThreadSegment, TaskItem } from "@/lib/api";
+import { apiRequest } from "@/lib/queryClient";
 import {
   assigneeLabel, initials, createdLabel, fullDateTime, relTime, parseRecipients,
 } from "@/lib/api";
@@ -54,6 +56,73 @@ function ChainCard({ seg, top }: { seg: ThreadSegment; top: boolean }) {
   );
 }
 
+
+function ChecklistSection({ taskId, items }: { taskId: number; items: TaskItem[] }) {
+  const [localItems, setLocalItems] = useState<TaskItem[]>(items);
+
+  useEffect(() => {
+    setLocalItems(items);
+  }, [items]);
+
+  const doneCount = useMemo(() => localItems.filter((item) => item.done).length, [localItems]);
+  const toggle = useMutation({
+    mutationFn: async ({ itemId, done }: { itemId: number; done: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/tasks/${taskId}/items/${itemId}`, { done });
+      return res.json() as Promise<TaskItem>;
+    },
+  });
+
+  if (localItems.length < 2) return null;
+
+  const setDone = (item: TaskItem, done: boolean) => {
+    const before = localItems;
+    setLocalItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, done } : candidate));
+    toggle.mutate(
+      { itemId: item.id, done },
+      {
+        onSuccess: (updated) => {
+          setLocalItems((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate));
+        },
+        onError: () => setLocalItems(before),
+      },
+    );
+  };
+
+  return (
+    <section className="max-w-[760px] rounded-2xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <ListChecks size={16} />
+          </span>
+          Checklist
+        </div>
+        <span className="rounded-full bg-secondary px-2.5 py-1 text-[13px] font-semibold text-muted-foreground">
+          {doneCount}/{localItems.length} done
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {localItems.map((item) => (
+          <li key={item.id}>
+            <label className="group flex cursor-pointer items-start gap-3 rounded-xl border border-transparent px-2 py-2 transition-colors hover:border-border hover:bg-secondary/60">
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={(event) => setDone(item, event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-primary accent-primary"
+                aria-label={`Mark checklist item ${item.position + 1} ${item.done ? "not done" : "done"}`}
+              />
+              <span className={`text-[15px] leading-5 transition-colors ${item.done ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                {item.text}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ChainHeader({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-2">
@@ -74,6 +143,7 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
   const cc = parseRecipients(email?.ccRecipients);
   const body = (email?.body || "").trim() || (email?.bodyPreview || "").trim();
   const segments: ThreadSegment[] = data?.threadSegments ?? [];
+  const items: TaskItem[] = data?.items ?? [];
   const hasChain = segments.length > 1;
   const isActive = task ? (task.status === "open" || task.status === "in_progress") : false;
 
@@ -163,6 +233,8 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
                 </p>
               </div>
             )}
+
+            <ChecklistSection taskId={taskId} items={items} />
 
             {/* Thread replies */}
             {data?.thread && data.thread.length > 0 && (

@@ -5,6 +5,7 @@ import type { RawEmail } from "./emailSource";
 import { extractFromEmail } from "./extract";
 import { HERMES_ADDRESS, OWNER_ADDRESS, inferAssignee } from "./assignee";
 import type { Email } from "@shared/schema";
+import { syncChecklistForTask } from "./checklist";
 
 // Worker cadence + active-hours window (all env-configurable).
 const WATCH_INTERVAL_MIN = Number(process.env.HERMES_WATCH_INTERVAL_MIN ?? 60);
@@ -75,6 +76,13 @@ export async function createTaskFromEmail(raw: RawEmail, email: Email, draft: Ta
     entityId: task.id,
     createdAt: new Date().toISOString(),
   });
+
+  // Checklist parsing is best-effort and independent from task creation/status.
+  try {
+    await syncChecklistForTask(task.id);
+  } catch (error) {
+    console.error(`[watcher] checklist sync failed for task ${task.id}:`, error);
+  }
 }
 
 // Strip a leading reply/forward prefix (RE:/FW:/FWD:) from a subject.
