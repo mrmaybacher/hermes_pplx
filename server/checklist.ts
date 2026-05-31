@@ -9,23 +9,67 @@ export interface ParsedChecklistItem {
   position: number;
 }
 
-const ITEM_MARKER = /^\s*(?:\d+\s*[.)\-:]\s+|[-*•]\s+)/;
+const INLINE_ITEM_MARKER = /^\s*(?:\d+\s*[.)\-:]\s+|[-*•]\s+)/;
+const NUMBERED_OWN_LINE_MARKER = /^\s*(\d+)\s*([.)\-:]?)\s*$/;
+const BULLET_OWN_LINE_MARKER = /^\s*[-*•]\s*$/;
 
 export function normalizeChecklistText(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function isOwnLineMarker(line: string): boolean {
+  if (BULLET_OWN_LINE_MARKER.test(line)) return true;
+
+  const match = line.match(NUMBERED_OWN_LINE_MARKER);
+  if (!match) return false;
+
+  const [, digits, punctuation] = match;
+  if (punctuation) return true;
+
+  const value = Number.parseInt(digits, 10);
+  return Number.isInteger(value) && value > 0 && value < 100;
+}
+
+function isAnyMarkerLine(line: string): boolean {
+  return INLINE_ITEM_MARKER.test(line) || isOwnLineMarker(line);
+}
+
+function normalizeParsedItemText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 export function parseChecklistItems(bodyText: string): ParsedChecklistItem[] {
-  const parsed = (bodyText || "")
-    .split("\n")
-    .map((line) => {
-      const trimmed = line.trim();
-      if (!ITEM_MARKER.test(trimmed)) return null;
-      const text = trimmed.replace(ITEM_MARKER, "").replace(/\s+/g, " ").trim();
-      if (!text) return null;
-      return { text, textNorm: normalizeChecklistText(text) };
-    })
-    .filter((item): item is { text: string; textNorm: string } => Boolean(item));
+  const parsed: { text: string; textNorm: string }[] = [];
+  const lines = (bodyText || "").split("\n");
+
+  for (let index = 0; index < lines.length; index++) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) continue;
+
+    if (INLINE_ITEM_MARKER.test(trimmed)) {
+      const text = normalizeParsedItemText(trimmed.replace(INLINE_ITEM_MARKER, ""));
+      if (text) parsed.push({ text, textNorm: normalizeChecklistText(text) });
+      continue;
+    }
+
+    if (!isOwnLineMarker(trimmed)) continue;
+
+    const textLines: string[] = [];
+    let lookahead = index + 1;
+
+    while (lookahead < lines.length && !lines[lookahead].trim()) lookahead++;
+
+    while (lookahead < lines.length) {
+      const candidate = lines[lookahead].trim();
+      if (!candidate || isAnyMarkerLine(candidate)) break;
+      textLines.push(candidate);
+      lookahead++;
+    }
+
+    const text = normalizeParsedItemText(textLines.join(" "));
+    if (text) parsed.push({ text, textNorm: normalizeChecklistText(text) });
+    index = Math.max(index, lookahead - 1);
+  }
 
   return parsed.map((item, position) => ({ ...item, position }));
 }
