@@ -75,7 +75,9 @@ export function TaskRow({
           className="flex-1 min-w-0 text-left px-5 py-[18px] rounded-l-[18px]"
         >
           <div className="flex items-start gap-2">
-            <h3 className="flex-1 min-w-0 text-[17px] font-semibold leading-6 tracking-[-0.01em] text-foreground line-clamp-2">
+            <h3 className={`flex-1 min-w-0 text-[17px] font-semibold leading-6 tracking-[-0.01em] line-clamp-2 ${
+              selected ? "text-primary" : "text-foreground"
+            }`}>
               {task.title}
             </h3>
             {mode !== "inbox" && <StatusBadge status={task.status} />}

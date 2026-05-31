@@ -207,6 +207,8 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
               </div>
             )}
 
+            <ChecklistSection taskId={taskId} items={items} />
+
             {/* Body — full chain when the forwarded email holds several messages,
                 otherwise the single body. Never blank when content exists. */}
             {hasChain ? (
@@ -233,8 +235,6 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
                 </p>
               </div>
             )}
-
-            <ChecklistSection taskId={taskId} items={items} />
 
             {/* Thread replies */}
             {data?.thread && data.thread.length > 0 && (

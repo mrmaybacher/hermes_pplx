@@ -197,11 +197,12 @@
 
   /* Card / row surface */
   .apple-surface {
+    position: relative;
     background: var(--surface-bg);
     border: 1px solid hsl(var(--border));
     border-radius: 18px;
     box-shadow: var(--shadow-row);
-    transition: transform 160ms ease-out, box-shadow 160ms ease-out, border-color 160ms ease-out;
+    transition: transform 160ms ease-out, box-shadow 160ms ease-out, border-color 160ms ease-out, background 160ms ease-out;
   }
   .apple-surface-hover:hover {
     transform: translateY(-1px);
@@ -209,9 +210,25 @@
     box-shadow: var(--shadow-row-hover);
   }
   .apple-surface-selected {
-    border-color: hsl(var(--primary) / 0.35);
-    background: linear-gradient(180deg, var(--surface-bg) 0%, var(--surface-selected-grad-to) 100%);
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.18), var(--shadow-row-hover);
+    border-color: hsl(var(--primary) / 0.58);
+    background:
+      linear-gradient(90deg, hsl(var(--primary) / 0.16) 0%, hsl(var(--accent) / 0.82) 42%, var(--surface-bg) 100%);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.28), var(--shadow-row-hover);
+  }
+  .dark .apple-surface-selected {
+    background:
+      linear-gradient(90deg, hsl(var(--primary) / 0.30) 0%, hsl(var(--accent) / 0.72) 48%, var(--surface-bg) 100%);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.42), var(--shadow-row-hover);
+  }
+  .apple-surface-selected::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 4px;
+    border-radius: 999px;
+    background: hsl(var(--primary));
   }
 
   /* Detail pane */
