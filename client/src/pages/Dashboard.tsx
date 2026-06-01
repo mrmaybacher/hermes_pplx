@@ -39,15 +39,15 @@ function readInboxSortOrder(): InboxSortOrder {
   return window.localStorage.getItem(INBOX_SORT_STORAGE_KEY) === "oldest" ? "oldest" : "newest";
 }
 
-function taskCreatedTime(task: Task): number {
-  const time = new Date(task.createdAt).getTime();
+function taskActivityTime(task: Task): number {
+  const time = new Date(task.lastActivityAt || task.createdAt).getTime();
   return Number.isNaN(time) ? 0 : time;
 }
 
 function sortInboxTasks(list: Task[], order: InboxSortOrder): Task[] {
   const direction = order === "newest" ? -1 : 1;
   return [...list].sort((a, b) => {
-    const diff = taskCreatedTime(a) - taskCreatedTime(b);
+    const diff = taskActivityTime(a) - taskActivityTime(b);
     if (diff !== 0) return diff * direction;
     return order === "newest" ? b.id - a.id : a.id - b.id;
   });
