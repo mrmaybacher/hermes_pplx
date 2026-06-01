@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { Person, Task } from "@shared/schema";
 import { buildPersonDigestHtml, GraphMailError, sendGraphMail } from "./sendMail";
 import { syncOpenTaskChecklists } from "./checklist";
+import { splitReplyBody } from "./emailSource";
 
 const updateTaskItemSchema = z.object({ done: z.boolean() });
 
@@ -30,6 +31,30 @@ async function listPeopleWithOpenTasks(): Promise<PersonWithOpenTasks[]> {
       tasks: theirs,
     };
   }).sort((a, b) => b.openCount - a.openCount);
+}
+
+
+function validTime(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const time = new Date(iso).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+async function withLastActivityAt<T extends Task>(task: T): Promise<T & { lastActivityAt: string }> {
+  let lastActivityAt = task.createdAt;
+  const conversationId = task.conversationId;
+  if (conversationId) {
+    const thread = await storage.listThreadMessages(conversationId);
+    let max = validTime(task.createdAt) ?? 0;
+    for (const message of thread) {
+      const time = validTime(message.receivedAt);
+      if (time !== null && time > max) {
+        max = time;
+        lastActivityAt = message.receivedAt;
+      }
+    }
+  }
+  return { ...task, lastActivityAt };
 }
 
 function normalize(value: unknown): string {
@@ -141,7 +166,8 @@ export async function registerRoutes(
 
   // ── Tasks ──
   app.get("/api/tasks", async (_req, res) => {
-    res.json(await storage.listTasks());
+    const tasks = await storage.listTasks();
+    res.json(await Promise.all(tasks.map((task) => withLastActivityAt(task))));
   });
 
   app.patch("/api/tasks/:id", async (req, res) => {
@@ -168,9 +194,21 @@ export async function registerRoutes(
     const task = await storage.getTask(id);
     if (!task) return res.status(404).json({ message: "Task not found" });
     const sourceEmail = task.sourceEmailId ? await storage.getEmail(task.sourceEmailId) : null;
-    const thread = task.conversationId
+    const rawThread = task.conversationId
       ? await storage.listThreadMessages(task.conversationId)
       : [];
+    const thread = await Promise.all(rawThread.map(async (message) => {
+      const replyEmail = message.emailId ? await storage.getEmail(message.emailId) : undefined;
+      const parts = splitReplyBody(replyEmail?.body || message.snippet || "");
+      return {
+        ...message,
+        from: `${message.fromName} <${message.fromEmail}>`,
+        sent: message.receivedAt,
+        text: parts.text || message.snippet || "",
+        quoted: parts.quoted,
+        summary: message.snippet || null,
+      };
+    }));
     // Parsed in-body chain segments (3a). Defensive JSON parse → [].
     let threadSegments: unknown[] = [];
     if (sourceEmail?.threadJson) {

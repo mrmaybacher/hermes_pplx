@@ -56,6 +56,44 @@ function ChainCard({ seg, top }: { seg: ThreadSegment; top: boolean }) {
   );
 }
 
+function ReplyCard({ message }: { message: NonNullable<TaskDetail["thread"]>[number] }) {
+  const [showQuoted, setShowQuoted] = useState(false);
+  const displayFrom = message.from || message.fromName;
+  const sent = message.sent || message.receivedAt;
+  const text = (message.text || message.summary || "").trim();
+  const quoted = (message.quoted || "").trim();
+
+  return (
+    <li className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <span className="min-w-0 break-words text-[14px] font-semibold text-foreground">{displayFrom}</span>
+        <span className="shrink-0 text-[13px] text-muted-foreground" title={fullDateTime(sent)}>{relTime(sent)}</span>
+      </div>
+      {text ? (
+        <p className="whitespace-pre-wrap text-[15px] leading-6 text-foreground">{text}</p>
+      ) : (
+        <p className="text-[14px] italic text-muted-foreground">No reply body text.</p>
+      )}
+      {quoted && (
+        <div className="mt-3 border-t border-border/70 pt-3">
+          <button
+            type="button"
+            onClick={() => setShowQuoted((value) => !value)}
+            className="text-[13px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+            aria-expanded={showQuoted}
+          >
+            {showQuoted ? "Hide quoted text" : "Show quoted text"}
+          </button>
+          {showQuoted && (
+            <blockquote className="mt-2 whitespace-pre-wrap rounded-xl border border-border bg-secondary/45 p-3 text-[13px] leading-5 text-muted-foreground">
+              {quoted}
+            </blockquote>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
 
 function ChecklistSection({ taskId, items }: { taskId: number; items: TaskItem[] }) {
   const [localItems, setLocalItems] = useState<TaskItem[]>(items);
@@ -244,13 +282,7 @@ export function EmailDetail({ taskId, task, onBack, onDone, onDelete, onCancel }
                 </div>
                 <ul className="space-y-2">
                   {data.thread.map((m) => (
-                    <li key={m.id} className="rounded-2xl border border-border bg-card p-3">
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-[14px] font-semibold text-foreground">{m.fromName}</span>
-                        <span className="text-[13px] text-muted-foreground">{relTime(m.receivedAt)}</span>
-                      </div>
-                      {m.summary && <p className="text-[14px] leading-5 text-muted-foreground">{m.summary}</p>}
-                    </li>
+                    <ReplyCard key={m.id} message={m} />
                   ))}
                 </ul>
               </div>

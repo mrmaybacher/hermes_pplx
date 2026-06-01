@@ -1,7 +1,10 @@
-import type { Task, Activity } from "@shared/schema";
+import type { Task as SchemaTask, Activity } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
-export type { Task, Activity };
+export type { Activity };
+export interface Task extends SchemaTask {
+  lastActivityAt?: string | null;
+}
 
 // Result of the admin re-process action.
 export interface ReprocessResult {
@@ -58,8 +61,13 @@ export interface EmailRow {
 export interface ThreadMsg {
   id: number;
   fromName: string;
+  fromEmail?: string;
+  from?: string;
+  sent?: string;
   summary: string | null;
   receivedAt: string;
+  text?: string;
+  quoted?: string;
 }
 
 // A single message parsed out of a forwarded chain (server splitThread).

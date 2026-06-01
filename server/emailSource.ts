@@ -257,6 +257,75 @@ export function splitThread(body: string): ThreadSegment[] {
   }
 }
 
+export interface ReplyBodyParts {
+  text: string;
+  quoted: string;
+}
+
+function formatThreadSegmentForQuote(seg: ThreadSegment): string {
+  const header: string[] = [];
+  if (seg.from) header.push(`From: ${seg.from}`);
+  if (seg.sent) header.push(`Sent: ${seg.sent}`);
+  if (seg.to) header.push(`To: ${seg.to}`);
+  if (seg.subject) header.push(`Subject: ${seg.subject}`);
+  return [...header, seg.text].filter((part) => part && part.trim()).join("\n").trim();
+}
+
+function looksLikeReplyBoundary(lines: string[], i: number): boolean {
+  const line = (lines[i] || "").trim();
+  if (!line) return false;
+  if (/^>/.test(line)) return true;
+  if (/^On .+ wrote:\s*$/i.test(line)) return true;
+  if (FORWARD_SEPARATORS.some((re) => re.test(line))) return true;
+  if (/^From\s*:/i.test(line)) return true;
+  if (/^Sent\s*:/i.test(line)) {
+    for (let j = i + 1; j <= i + 3 && j < lines.length; j++) {
+      if (/^\s*(To|Subject|Cc|From)\s*:/i.test(lines[j])) return true;
+    }
+  }
+  return false;
+}
+
+// Split a reply body into the new message and the quoted previous-email tail.
+// It reuses the same cleaning helpers as ingestion, then combines splitThread's
+// structured header-block detection with common reply markers such as
+// "On <date> ... wrote:" and leading ">" quote lines. Never throws.
+export function splitReplyBody(body: string): ReplyBodyParts {
+  try {
+    const cleaned = resolveBody(htmlToText(body || "")) || htmlToText(body || "");
+    const text = cleaned.trim();
+    if (!text) return { text: "", quoted: "" };
+
+    const segments = splitThread(text);
+    if (segments.length > 1) {
+      const first = (segments[0]?.text || "").trim();
+      const quoted = segments.slice(1).map(formatThreadSegmentForQuote).filter(Boolean).join("\n\n").trim();
+      if (first || quoted) return { text: first || text, quoted };
+    }
+
+    const lines = text.split("\n");
+    let boundary = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (!looksLikeReplyBoundary(lines, i)) continue;
+      const before = lines.slice(0, i).join("\n").trim();
+      if (before || /^>/.test(lines[i].trim()) || /^On .+ wrote:\s*$/i.test(lines[i].trim())) {
+        boundary = i;
+        break;
+      }
+    }
+
+    if (boundary >= 0) {
+      const fresh = lines.slice(0, boundary).join("\n").trim();
+      const quoted = lines.slice(boundary).join("\n").trim();
+      if (fresh || quoted) return { text: fresh || text, quoted: fresh ? quoted : "" };
+    }
+
+    return { text, quoted: "" };
+  } catch {
+    return { text: (body || "").trim(), quoted: "" };
+  }
+}
+
 export const usingRealGraph = Boolean(
   GRAPH_TENANT_ID && GRAPH_CLIENT_ID && GRAPH_CLIENT_SECRET
 );
